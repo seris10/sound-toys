@@ -1,0 +1,2133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Resonance - Interactive Sound Waves</title>
+    
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Load React, ReactDOM, and Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #000000; 
+            color: white; 
+            touch-action: none; 
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #root { 
+            width: 100vw; 
+            height: 100vh; 
+            display: flex; 
+            flex-direction: column; 
+        }
+        
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px; width: 16px;
+            border-radius: 50%;
+            background: #06b6d4; 
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.8);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 4px;
+            cursor: pointer;
+            background: #1e293b;
+            border-radius: 2px;
+        }
+        .synth-panel {
+            transition: width 0.3s ease, opacity 0.3s ease;
+        }
+        .synth-tab {
+            padding: 6px 0;
+            font-size: 9px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: color 0.2s, border-color 0.2s;
+            color: #475569;
+            text-align: center;
+            flex: 1;
+        }
+        .synth-tab:hover { color: #94a3b8; }
+        .synth-tab.active {
+            color: #22d3ee;
+            border-bottom-color: #06b6d4;
+        }
+        .harmonic-col {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            flex: 1;
+        }
+        .harmonic-bar-bg {
+            width: 100%;
+            height: 64px;
+            background: #0f172a;
+            border-radius: 3px;
+            position: relative;
+            overflow: hidden;
+            cursor: ns-resize;
+        }
+        .harmonic-bar-fill {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(to top, #0891b2, #22d3ee);
+            border-radius: 3px 3px 0 0;
+            transition: height 0.08s ease-out;
+            pointer-events: none;
+        }
+        .draw-canvas-wrap {
+            border: 1px solid #1e293b;
+            border-radius: 6px;
+            overflow: hidden;
+            cursor: crosshair;
+            position: relative;
+            background: #0a0f1e;
+        }
+        .draw-canvas-wrap canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .adsr-preview {
+            position: relative;
+            height: 60px;
+            background: #0a0f1e;
+            border: 1px solid #1e293b;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .panel-section-label {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: rgba(6, 182, 212, 0.7);
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        .param-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .param-label {
+            font-size: 10px;
+            color: #64748b;
+            min-width: 50px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .param-value {
+            font-size: 10px;
+            color: #94a3b8;
+            min-width: 32px;
+            text-align: right;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .param-row input[type=range] { flex: 1; }
+        .filter-type-btn {
+            padding: 4px 8px;
+            font-size: 9px;
+            border-radius: 6px;
+            border: 1px solid #1e293b;
+            background: transparent;
+            color: #64748b;
+            cursor: pointer;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            transition: all 0.15s;
+        }
+        .filter-type-btn:hover { color: #94a3b8; border-color: #334155; }
+        .filter-type-btn.active {
+            color: #22d3ee;
+            background: rgba(6,182,212,0.1);
+            border-color: rgba(6,182,212,0.3);
+        }
+        .lfo-target-btn {
+            padding: 3px 8px;
+            font-size: 9px;
+            border-radius: 4px;
+            border: 1px solid #1e293b;
+            background: transparent;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .lfo-target-btn.active {
+            color: #f0abfc;
+            background: rgba(240,171,252,0.1);
+            border-color: rgba(240,171,252,0.3);
+        }
+        .panel-scroll {
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #1e293b transparent;
+        }
+        .panel-scroll::-webkit-scrollbar { width: 3px; }
+        .panel-scroll::-webkit-scrollbar-track { background: transparent; }
+        .panel-scroll::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 2px; }
+
+        @media (max-width: 767px) {
+            .synth-drawer {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                z-index: 50;
+                transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                max-height: 75vh;
+                border-radius: 16px 16px 0 0;
+            }
+            .synth-drawer.closed {
+                transform: translateY(100%);
+            }
+            .synth-drawer.open {
+                transform: translateY(0);
+            }
+            .synth-drawer-backdrop {
+                position: fixed;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.5);
+                z-index: 49;
+                transition: opacity 0.3s ease;
+            }
+            .synth-drawer-tab {
+                position: fixed;
+                bottom: 0;
+                left: 50%;
+                transform: translateX(-50%);
+                z-index: 48;
+                padding: 8px 24px;
+                border-radius: 12px 12px 0 0;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.08em;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="root">
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;width:100vw;background:#000;color:#94a3b8;font-family:system-ui,sans-serif;gap:16px">
+            <div style="width:36px;height:36px;border:3px solid #1e293b;border-top-color:#06b6d4;border-radius:50%;animation:spin .8s linear infinite"></div>
+            <div style="font-size:13px;letter-spacing:0.1em;text-transform:uppercase">Loading</div>
+        </div>
+        <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+    </div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        // Inline SVG Icons
+        const IconPlay = ({size=24, className=""}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none" className={className}><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>;
+        const IconSquare = ({size=24, className=""}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none" className={className}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>;
+        const IconMusic = ({size=24, className=""}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>;
+        const IconVolume = ({size=24, className=""}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>;
+        const IconInfo = ({size=24, className=""}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>;
+        const IconCircle = ({size=24, className=""}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"></circle></svg>;
+        const IconTriangle = ({size=24, className=""}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path></svg>;
+        const IconSquareOutline = ({size=24, className=""}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>;
+        const IconSawtooth = ({size=24, className=""}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>;
+        const IconSliders = ({size=24, className=""}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="21" y1="4" x2="14" y2="4"></line><line x1="10" y1="4" x2="3" y2="4"></line><line x1="21" y1="12" x2="12" y2="12"></line><line x1="8" y1="12" x2="3" y2="12"></line><line x1="21" y1="20" x2="16" y2="20"></line><line x1="12" y1="20" x2="3" y2="20"></line><line x1="14" y1="1" x2="14" y2="7"></line><line x1="8" y1="9" x2="8" y2="15"></line><line x1="16" y1="17" x2="16" y2="23"></line></svg>;
+
+        const MUSICAL_NOTES = [
+          { n: 'C3', f: 130.81 }, { n: 'D3', f: 146.83 }, { n: 'E3', f: 164.81 }, { n: 'F3', f: 174.61 }, { n: 'G3', f: 196.00 }, { n: 'A3', f: 220.00 }, { n: 'B3', f: 246.94 },
+          { n: 'C4', f: 261.63 }, { n: 'D4', f: 293.66 }, { n: 'D#4', f: 311.13 }, { n: 'E4', f: 329.63 }, { n: 'F4', f: 349.23 }, { n: 'F#4', f: 369.99 }, { n: 'G4', f: 392.00 }, { n: 'G#4', f: 415.30 }, { n: 'A4', f: 440.00 }, { n: 'B4', f: 493.88 },
+          { n: 'C5', f: 523.25 }, { n: 'D5', f: 587.33 }, { n: 'D#5', f: 622.25 }, { n: 'E5', f: 659.25 }, { n: 'F5', f: 698.46 }, { n: 'G5', f: 783.99 }, { n: 'A5', f: 880.00 }
+        ];
+
+        const MELODIES = {
+          arpeggio: {
+            name: "Arpeggio",
+            notes: ["C3", "E3", "G3", "C4", "E4", "G4", "C5", "G4", "E4", "C4", "G3", "E3", "C3", "E3", "G3", "C4", "E4", "G4", "E5", "C5", "G4", "E4", "C4", "G3", "C3"],
+            speed: 150
+          },
+          elise: {
+            name: "Für Elise",
+            notes: ["E5", "D#5", "E5", "D#5", "E5", "B4", "D5", "C5", "A4", "-", "-", "C4", "E4", "A4", "B4", "-", "-", "E4", "G#4", "B4", "C5", "-", "-", "E4", "E5", "D#5", "E5", "D#5", "E5", "B4", "D5", "C5", "A4", "-", "-", "C4", "E4", "A4", "B4", "-", "-", "E4", "C5", "B4", "A4", "-", "-", "-"],
+            speed: 180
+          },
+          scifi: {
+            name: "Sci-Fi Theme",
+            notes: ["C4", "E4", "G4", "B4", "C5", "B4", "G4", "E4", "C4", "E4", "G4", "B4", "C5", "B4", "G4", "E4", "C4", "E4", "G4", "B4", "C5", "B4", "G4", "E4", "C4", "E4", "G4", "B4", "C5", "-", "-", "-"],
+            speed: 160
+          },
+          wizard: {
+            name: "Wizard Theme",
+            notes: ["B3", "-", "E4", "-", "-", "G4", "F#4", "-", "E4", "-", "-", "-", "B4", "-", "A4", "-", "-", "-", "-", "-", "F#4", "-", "-", "-", "-", "-", "E4", "-", "-", "G4", "F#4", "-", "D#4", "-", "-", "-", "F4", "-", "B3", "-", "-", "-", "-"],
+            speed: 130
+          },
+          parakeet: {
+            name: "Parakeet",
+            notes: ["PARAKEET_MODE"],
+            speed: 120
+          }
+        };
+
+        // --- Sub-components for the synth panel ---
+
+        const DrawWaveCanvas = ({ drawCanvasRef, onWaveChange }) => {
+          const isDrawingRef = useRef(false);
+          const samplesRef = useRef(new Float32Array(256).fill(0));
+
+          useEffect(() => {
+            const cvs = drawCanvasRef.current;
+            if (!cvs) return;
+            cvs.width = 256;
+            cvs.height = 100;
+            const ctx = cvs.getContext('2d');
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(0, 50);
+            ctx.lineTo(256, 50);
+            ctx.stroke();
+          }, [drawCanvasRef]);
+
+          const getPos = (e, cvs) => {
+            const rect = cvs.getBoundingClientRect();
+            const clientX = e.clientX ?? (e.touches?.[0]?.clientX ?? 0);
+            const clientY = e.clientY ?? (e.touches?.[0]?.clientY ?? 0);
+            const x = Math.max(0, Math.min(255, Math.round((clientX - rect.left) / rect.width * 256)));
+            const y = 1 - 2 * Math.max(0, Math.min(1, (clientY - rect.top) / rect.height)); // -1 to 1
+            return { x, y };
+          };
+
+          const redraw = (cvs, samples) => {
+            const ctx = cvs.getContext('2d');
+            const w = cvs.width, h = cvs.height;
+            ctx.clearRect(0, 0, w, h);
+            // Center line
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(0, h/2);
+            ctx.lineTo(w, h/2);
+            ctx.stroke();
+            // Wave
+            ctx.strokeStyle = '#22d3ee';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            for (let i = 0; i < samples.length; i++) {
+              const px = i;
+              const py = (1 - samples[i]) * h / 2;
+              if (i === 0) ctx.moveTo(px, py);
+              else ctx.lineTo(px, py);
+            }
+            ctx.stroke();
+          };
+
+          const lastXRef = useRef(null);
+
+          const handleStart = (e) => {
+            isDrawingRef.current = true;
+            const cvs = drawCanvasRef.current;
+            const { x, y } = getPos(e, cvs);
+            samplesRef.current[x] = y;
+            lastXRef.current = x;
+          };
+
+          const handleMove = (e) => {
+            if (!isDrawingRef.current) return;
+            e.preventDefault();
+            const cvs = drawCanvasRef.current;
+            const { x, y } = getPos(e, cvs);
+            // Interpolate between last point and current
+            const lx = lastXRef.current ?? x;
+            const startX = Math.min(lx, x);
+            const endX = Math.max(lx, x);
+            const startY = lx <= x ? samplesRef.current[lx] : y;
+            const endY = lx <= x ? y : samplesRef.current[lx];
+            for (let i = startX; i <= endX; i++) {
+              const t = endX === startX ? 0 : (i - startX) / (endX - startX);
+              samplesRef.current[i] = startY + (endY - startY) * t;
+            }
+            lastXRef.current = x;
+            redraw(cvs, samplesRef.current);
+          };
+
+          const handleEnd = () => {
+            if (!isDrawingRef.current) return;
+            isDrawingRef.current = false;
+            lastXRef.current = null;
+            onWaveChange(Array.from(samplesRef.current));
+          };
+
+          return (
+            <div className="draw-canvas-wrap" style={{ height: '100px' }}>
+              <canvas
+                ref={drawCanvasRef}
+                onPointerDown={handleStart}
+                onPointerMove={handleMove}
+                onPointerUp={handleEnd}
+                onPointerLeave={handleEnd}
+                style={{ touchAction: 'none' }}
+              />
+            </div>
+          );
+        };
+
+        const ADSRPreview = ({ adsr, canvasRef }) => {
+          useEffect(() => {
+            const cvs = canvasRef.current;
+            if (!cvs) return;
+            const parent = cvs.parentElement;
+            cvs.width = parent.clientWidth;
+            cvs.height = 60;
+            const ctx = cvs.getContext('2d');
+            const w = cvs.width, h = cvs.height;
+            const pad = 4;
+
+            ctx.clearRect(0, 0, w, h);
+
+            // Normalize time segments
+            const totalTime = adsr.a + adsr.d + 0.3 + adsr.r; // sustain shown as fixed width
+            const scale = (w - pad * 2) / totalTime;
+
+            const aX = pad + adsr.a * scale;
+            const dX = aX + adsr.d * scale;
+            const sX = dX + 0.3 * scale;
+            const rX = sX + adsr.r * scale;
+            const top = pad;
+            const bot = h - pad;
+            const sY = bot - (adsr.s * (bot - top));
+
+            // Fill
+            ctx.beginPath();
+            ctx.moveTo(pad, bot);
+            ctx.lineTo(aX, top);
+            ctx.lineTo(dX, sY);
+            ctx.lineTo(sX, sY);
+            ctx.lineTo(rX, bot);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(6, 182, 212, 0.08)';
+            ctx.fill();
+
+            // Line
+            ctx.beginPath();
+            ctx.moveTo(pad, bot);
+            ctx.lineTo(aX, top);
+            ctx.lineTo(dX, sY);
+            ctx.lineTo(sX, sY);
+            ctx.lineTo(rX, bot);
+            ctx.strokeStyle = '#06b6d4';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Labels
+            ctx.font = '8px JetBrains Mono, monospace';
+            ctx.fillStyle = '#475569';
+            ctx.textAlign = 'center';
+            ctx.fillText('A', (pad + aX) / 2, bot - 2);
+            ctx.fillText('D', (aX + dX) / 2, bot - 2);
+            ctx.fillText('S', (dX + sX) / 2, bot - 2);
+            ctx.fillText('R', (sX + rX) / 2, bot - 2);
+
+          }, [adsr, canvasRef]);
+
+          return (
+            <div className="adsr-preview">
+              <canvas ref={canvasRef} style={{ width: '100%', height: '60px' }} />
+            </div>
+          );
+        };
+
+        const App = () => {
+          const containerRef = useRef(null);
+          const canvasRef = useRef(null);
+          
+          const freqDisplayRef = useRef(null);
+          const ampDisplayRef = useRef(null);
+          const pkZoneLabelRef = useRef(null);
+          
+          const audioCtxRef = useRef(null);
+          const oscillatorRef = useRef(null);
+          const gainNodeRef = useRef(null);
+          const filterRef = useRef(null);
+          const analyserRef = useRef(null);
+
+          // Parakeet FM synthesis refs
+          const fmOscRef = useRef(null);
+          const fmGainRef = useRef(null);
+          const amOscRef = useRef(null);
+          const amGainRef = useRef(null);
+          const parakeetModeRef = useRef(false);
+
+          // -- Parakeet mode --
+          const [parakeetMode, setParakeetMode] = useState(false);
+          // Store pre-parakeet settings so we can restore on exit
+          const prePkSettingsRef = useRef(null);
+
+          const [isInteracting, setIsInteracting] = useState(false);
+          const [hasStarted, setHasStarted] = useState(false);
+          const [activeMelody, setActiveMelody] = useState(null);
+          
+          const [waveType, setWaveType] = useState('sine');
+          const [resonance, setResonance] = useState(0);
+
+          // -- New synth state --
+          const [panelOpen, setPanelOpen] = useState(() => {
+            return typeof window !== 'undefined' && window.innerWidth >= 768;
+          });
+          // Harmonics: 16 partials, index 0 = fundamental
+          const [harmonics, setHarmonics] = useState(() => {
+            const h = new Array(16).fill(0);
+            h[0] = 1; // fundamental at full
+            return h;
+          });
+          const harmonicsRef = useRef(null); // will track current harmonics
+
+          // Drawn waveform: 256 samples, normalized -1 to 1
+          const [drawnWave, setDrawnWave] = useState(null); // null = not drawn yet
+          const drawnWaveRef = useRef(null);
+
+          // Waveform source mode: 'preset' | 'harmonics' | 'drawn'
+          const [waveSource, setWaveSource] = useState('preset');
+          const waveSourceRef = useRef('preset');
+
+          // ADSR envelope (all in seconds, sustain is 0-1 level)
+          const [adsr, setAdsr] = useState({ a: 0.01, d: 0.1, s: 0.7, r: 0.15 });
+          const adsrRef = useRef({ a: 0.01, d: 0.1, s: 0.7, r: 0.15 });
+
+          // Filter
+          const [filterType, setFilterType] = useState('lowpass');
+          const [filterCutoff, setFilterCutoff] = useState(4000);
+          const filterTypeRef = useRef('lowpass');
+          const filterCutoffRef = useRef(4000);
+
+          // LFO
+          const [lfoRate, setLfoRate] = useState(0);
+          const [lfoDepth, setLfoDepth] = useState(0);
+          const [lfoTarget, setLfoTarget] = useState('pitch'); // 'pitch' | 'amplitude'
+          const lfoOscRef = useRef(null);
+          const lfoGainNodeRef = useRef(null);
+          const lfoRateRef = useRef(0);
+          const lfoDepthRef = useRef(0);
+          const lfoTargetRef = useRef('pitch');
+
+          // Ref for ADSR gain node (separate from main gain)
+          const adsrGainRef = useRef(null);
+
+          // Draw canvas ref
+          const drawCanvasRef = useRef(null);
+          // ADSR preview canvas ref
+          const adsrCanvasRef = useRef(null);
+
+          const minFreqRef = useRef(110);
+          const maxFreqRef = useRef(880);
+
+          const targetFreqRef = useRef(220);
+          const targetAmpRef = useRef(0);
+          const isInteractingRef = useRef(false);
+          const isPlayingMelodyRef = useRef(false);
+          
+          const waveTypeRef = useRef('sine');
+          const resonanceRef = useRef(0);
+
+          const requestRef = useRef();
+          const timeRef = useRef(0);
+          const currentAmpRef = useRef(0);
+          const currentFreqRef = useRef(220);
+          // Color history system: ring buffer of recent note colors
+          // Each entry: { h: hue, s: saturation, l: lightness, dom: dominance, phase: angular position }
+          const colorHistoryRef = useRef([
+            { h: 0, s: 40, l: 15, dom: 1, phase: 0 }
+          ]);
+          const lastRecordedFreqRef = useRef(220);
+          const colorAccumRef = useRef(0); // frames spent on current note
+
+          // Smoothed per-ring colors (4 rings, each { h, s, l })
+          // These lerp toward their targets each frame for fluid transitions
+          const ringColorsRef = useRef([
+            { h: 0, s: 40, l: 15 },
+            { h: 0, s: 40, l: 15 },
+            { h: 0, s: 40, l: 15 },
+            { h: 0, s: 40, l: 15 }
+          ]);
+
+          // Secondary color per ring (for angular gradient blending)
+          const ringColors2Ref = useRef([
+            { h: 0, s: 40, l: 15 },
+            { h: 0, s: 40, l: 15 },
+            { h: 0, s: 40, l: 15 },
+            { h: 0, s: 40, l: 15 }
+          ]);
+
+          const initAudio = async () => {
+            if (audioCtxRef.current) return;
+            console.log('[audio-diag] initAudio: creating AudioContext...');
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            const ctx = new AudioContext();
+            console.log('[audio-diag] initAudio: ctx created, state:', ctx.state);
+            if (ctx.state === 'suspended') {
+              await ctx.resume();
+              console.log('[audio-diag] initAudio: ctx resumed, state:', ctx.state);
+            }
+
+            const osc = ctx.createOscillator();
+            const filter = ctx.createBiquadFilter();
+            const adsrGain = ctx.createGain();
+            const masterGain = ctx.createGain();
+            const analyser = ctx.createAnalyser();
+
+            osc.type = waveTypeRef.current;
+            osc.frequency.value = 220;
+
+            filter.type = filterTypeRef.current;
+            filter.frequency.value = filterCutoffRef.current;
+            filter.Q.value = 0;
+
+            adsrGain.gain.value = 0;
+            masterGain.gain.value = 1;
+
+            // LFO setup
+            const lfoOsc = ctx.createOscillator();
+            const lfoGain = ctx.createGain();
+            lfoOsc.type = 'sine';
+            lfoOsc.frequency.value = 0;
+            lfoGain.gain.value = 0;
+            lfoOsc.connect(lfoGain);
+            // Default LFO target: pitch (connect to osc frequency)
+            lfoGain.connect(osc.frequency);
+            lfoOsc.start();
+
+            // FM oscillator (modulates main oscillator's frequency)
+            const fmOsc = ctx.createOscillator();
+            const fmGainNode = ctx.createGain();
+            fmOsc.type = 'sine';
+            fmOsc.frequency.value = 35;
+            fmGainNode.gain.value = 0;
+            fmOsc.connect(fmGainNode);
+            fmGainNode.connect(osc.frequency);
+            fmOsc.start();
+
+            // AM oscillator (modulates amplitude for warble texture)
+            const amOsc = ctx.createOscillator();
+            const amGainNode = ctx.createGain();
+            amOsc.type = 'sine';
+            amOsc.frequency.value = 35;
+            amGainNode.gain.value = 0;
+            amOsc.connect(amGainNode);
+            amGainNode.connect(adsrGain.gain);
+            amOsc.start();
+
+            // Main chain: osc > filter > adsrGain > masterGain > analyser > destination
+            osc.connect(filter);
+            filter.connect(adsrGain);
+            adsrGain.connect(masterGain);
+            masterGain.connect(analyser);
+            analyser.connect(ctx.destination);
+            console.log('[audio-diag] initAudio: chain connected');
+
+            osc.start();
+            console.log('[audio-diag] initAudio: osc started');
+
+            audioCtxRef.current = ctx;
+            oscillatorRef.current = osc;
+            filterRef.current = filter;
+            adsrGainRef.current = adsrGain;
+            gainNodeRef.current = masterGain;
+            analyserRef.current = analyser;
+            lfoOscRef.current = lfoOsc;
+            lfoGainNodeRef.current = lfoGain;
+            fmOscRef.current = fmOsc;
+            fmGainRef.current = fmGainNode;
+            amOscRef.current = amOsc;
+            amGainRef.current = amGainNode;
+            console.log('[audio-diag] initAudio: all refs assigned, done');
+          };
+
+          useEffect(() => {
+            waveTypeRef.current = waveType;
+            if (waveSourceRef.current === 'preset' && oscillatorRef.current) {
+              oscillatorRef.current.type = waveType;
+            }
+          }, [waveType]);
+
+          useEffect(() => {
+            resonanceRef.current = resonance;
+            if (filterRef.current && audioCtxRef.current) {
+              const targetQ = resonance * 25;
+              filterRef.current.Q.setTargetAtTime(targetQ, audioCtxRef.current.currentTime, 0.05);
+              // Cutoff now driven by explicit control, resonance just adds Q
+              filterRef.current.frequency.setTargetAtTime(filterCutoffRef.current, audioCtxRef.current.currentTime, 0.05);
+            }
+          }, [resonance]);
+
+          // Filter type + cutoff
+          useEffect(() => {
+            filterTypeRef.current = filterType;
+            if (filterRef.current) filterRef.current.type = filterType;
+          }, [filterType]);
+
+          useEffect(() => {
+            filterCutoffRef.current = filterCutoff;
+            if (filterRef.current && audioCtxRef.current) {
+              filterRef.current.frequency.setTargetAtTime(filterCutoff, audioCtxRef.current.currentTime, 0.05);
+            }
+          }, [filterCutoff]);
+
+          // LFO parameters
+          useEffect(() => {
+            lfoRateRef.current = lfoRate;
+            if (lfoOscRef.current && audioCtxRef.current) {
+              lfoOscRef.current.frequency.setTargetAtTime(lfoRate, audioCtxRef.current.currentTime, 0.05);
+            }
+          }, [lfoRate]);
+
+          useEffect(() => {
+            lfoDepthRef.current = lfoDepth;
+            if (lfoGainNodeRef.current && audioCtxRef.current) {
+              // For pitch: depth in Hz. For amplitude: depth as gain fraction.
+              const scaledDepth = lfoTargetRef.current === 'pitch' ? lfoDepth * 50 : lfoDepth * 0.5;
+              lfoGainNodeRef.current.gain.setTargetAtTime(scaledDepth, audioCtxRef.current.currentTime, 0.05);
+            }
+          }, [lfoDepth]);
+
+          useEffect(() => {
+            lfoTargetRef.current = lfoTarget;
+            if (lfoGainNodeRef.current && oscillatorRef.current && adsrGainRef.current && audioCtxRef.current) {
+              lfoGainNodeRef.current.disconnect();
+              if (lfoTarget === 'pitch') {
+                lfoGainNodeRef.current.connect(oscillatorRef.current.frequency);
+              } else {
+                lfoGainNodeRef.current.connect(adsrGainRef.current.gain);
+              }
+              // Re-apply depth scaling for new target
+              const scaledDepth = lfoTarget === 'pitch' ? lfoDepthRef.current * 50 : lfoDepthRef.current * 0.5;
+              lfoGainNodeRef.current.gain.setTargetAtTime(scaledDepth, audioCtxRef.current.currentTime, 0.05);
+            }
+          }, [lfoTarget]);
+
+          // Apply harmonics as PeriodicWave
+          const applyHarmonicsWave = useCallback((h) => {
+            if (!oscillatorRef.current || !audioCtxRef.current) return;
+            const real = new Float32Array(h.length + 1);
+            const imag = new Float32Array(h.length + 1);
+            real[0] = 0; imag[0] = 0;
+            for (let i = 0; i < h.length; i++) {
+              real[i + 1] = 0;
+              imag[i + 1] = h[i]; // sine components
+            }
+            const wave = audioCtxRef.current.createPeriodicWave(real, imag, { disableNormalization: false });
+            oscillatorRef.current.setPeriodicWave(wave);
+          }, []);
+
+          useEffect(() => {
+            harmonicsRef.current = harmonics;
+            if (waveSourceRef.current === 'harmonics') {
+              applyHarmonicsWave(harmonics);
+            }
+          }, [harmonics, applyHarmonicsWave]);
+
+          // Apply drawn waveform via FFT decomposition into PeriodicWave
+          const applyDrawnWave = useCallback((samples) => {
+            if (!oscillatorRef.current || !audioCtxRef.current || !samples) return;
+            // Simple DFT to extract harmonics from drawn wave (up to 32 partials)
+            const N = samples.length;
+            const numPartials = 32;
+            const real = new Float32Array(numPartials + 1);
+            const imag = new Float32Array(numPartials + 1);
+            real[0] = 0; imag[0] = 0;
+            for (let k = 1; k <= numPartials; k++) {
+              let re = 0, im = 0;
+              for (let n = 0; n < N; n++) {
+                const angle = (2 * Math.PI * k * n) / N;
+                re += samples[n] * Math.cos(angle);
+                im -= samples[n] * Math.sin(angle);
+              }
+              real[k] = (re / N) * 2;
+              imag[k] = (im / N) * 2;
+            }
+            const wave = audioCtxRef.current.createPeriodicWave(real, imag, { disableNormalization: false });
+            oscillatorRef.current.setPeriodicWave(wave);
+          }, []);
+
+          useEffect(() => {
+            drawnWaveRef.current = drawnWave;
+            if (waveSourceRef.current === 'drawn' && drawnWave) {
+              applyDrawnWave(drawnWave);
+            }
+          }, [drawnWave, applyDrawnWave]);
+
+          // Wave source switching
+          useEffect(() => {
+            waveSourceRef.current = waveSource;
+            if (!oscillatorRef.current) return;
+            if (waveSource === 'preset') {
+              oscillatorRef.current.type = waveTypeRef.current;
+            } else if (waveSource === 'harmonics') {
+              applyHarmonicsWave(harmonicsRef.current || [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]);
+            } else if (waveSource === 'drawn' && drawnWaveRef.current) {
+              applyDrawnWave(drawnWaveRef.current);
+            }
+          }, [waveSource, applyHarmonicsWave, applyDrawnWave]);
+
+          const triggerNote = (freq, amp) => {
+            const MAX_SAFE_GAIN = 0.25;
+
+            targetFreqRef.current = freq;
+            targetAmpRef.current = amp;
+
+            if (freqDisplayRef.current) freqDisplayRef.current.innerText = Math.round(freq);
+            if (pkZoneLabelRef.current && parakeetModeRef.current) {
+              const f = freq;
+              let zone = '';
+              if (f < 400) zone = 'low warble';
+              else if (f < 800) zone = 'murmur';
+              else if (f < 2000) zone = 'chatter';
+              else if (f < 4000) zone = 'contact call';
+              else if (f < 6000) zone = 'excited';
+              else zone = 'alarm';
+              pkZoneLabelRef.current.innerText = zone;
+            }
+            if (ampDisplayRef.current) ampDisplayRef.current.innerText = Math.round(amp * 100);
+
+            if (oscillatorRef.current && adsrGainRef.current && audioCtxRef.current) {
+              const ctx = audioCtxRef.current;
+              const now = ctx.currentTime;
+              oscillatorRef.current.frequency.setTargetAtTime(freq, now, 0.015);
+
+              // In parakeet mode, filter cutoff tracks pitch for resonant bird-like formant
+              if (parakeetModeRef.current && filterRef.current) {
+                // Cutoff follows pitch with a slight offset above for brightness
+                const pkCutoff = freq * 1.5 + 400;
+                filterRef.current.frequency.setTargetAtTime(
+                  Math.min(pkCutoff, 12000), now, 0.02
+                );
+              }
+
+              const env = adsrRef.current;
+              const peak = amp * MAX_SAFE_GAIN;
+              const sustainLevel = peak * env.s;
+
+              if (amp > 0.001) {
+                // Note ON: Attack > Decay > Sustain
+                adsrGainRef.current.gain.cancelScheduledValues(now);
+                adsrGainRef.current.gain.setValueAtTime(adsrGainRef.current.gain.value, now);
+                adsrGainRef.current.gain.linearRampToValueAtTime(peak, now + env.a);
+                adsrGainRef.current.gain.linearRampToValueAtTime(sustainLevel, now + env.a + env.d);
+              } else {
+                // Note OFF: Release
+                adsrGainRef.current.gain.cancelScheduledValues(now);
+                adsrGainRef.current.gain.setValueAtTime(adsrGainRef.current.gain.value, now);
+                adsrGainRef.current.gain.linearRampToValueAtTime(0, now + env.r);
+              }
+            }
+          };
+
+          useEffect(() => {
+            adsrRef.current = adsr;
+          }, [adsr]);
+
+          const triggerParakeetNote = (freq, amp, fmRate, fmDepth, amRate, amDepth) => {
+            triggerNote(freq, amp);
+
+            const ctx = audioCtxRef.current;
+            if (!ctx) return;
+            const now = ctx.currentTime;
+
+            if (fmOscRef.current && fmGainRef.current) {
+              fmOscRef.current.frequency.setTargetAtTime(fmRate, now, 0.01);
+              fmGainRef.current.gain.setTargetAtTime(fmDepth, now, 0.01);
+            }
+
+            if (amOscRef.current && amGainRef.current) {
+              amOscRef.current.frequency.setTargetAtTime(amRate, now, 0.01);
+              amGainRef.current.gain.setTargetAtTime(amDepth, now, 0.01);
+            }
+          };
+
+          const silenceParakeetMod = () => {
+            const ctx = audioCtxRef.current;
+            if (!ctx) return;
+            const now = ctx.currentTime;
+            if (fmGainRef.current) fmGainRef.current.gain.setTargetAtTime(0, now, 0.01);
+            if (amGainRef.current) amGainRef.current.gain.setTargetAtTime(0, now, 0.01);
+          };
+
+          const playMelody = async (melodyKey) => {
+            if (!hasStarted) { setHasStarted(true); initAudio(); }
+            isPlayingMelodyRef.current = false;
+            await new Promise(r => setTimeout(r, 50)); 
+            
+            setActiveMelody(melodyKey);
+            setIsInteracting(true);
+            isInteractingRef.current = true;
+            isPlayingMelodyRef.current = true;
+
+            const sequence = MELODIES[melodyKey];
+            
+            for (let i = 0; i < sequence.notes.length; i++) {
+              if (!isPlayingMelodyRef.current) break; 
+              
+              const noteName = sequence.notes[i];
+              if (noteName === "-") {
+                triggerNote(targetFreqRef.current, 0); 
+                await new Promise(r => setTimeout(r, sequence.speed));
+              } else {
+                const noteData = MUSICAL_NOTES.find(n => n.n === noteName);
+                if (noteData) {
+                  triggerNote(noteData.f, 0.85); 
+                  await new Promise(r => setTimeout(r, sequence.speed * 0.8)); 
+                  triggerNote(noteData.f, 0);   
+                  await new Promise(r => setTimeout(r, sequence.speed * 0.2)); 
+                }
+              }
+            }
+
+            if (isPlayingMelodyRef.current) {
+              setIsInteracting(false);
+              isInteractingRef.current = false;
+              isPlayingMelodyRef.current = false;
+              setActiveMelody(null);
+              triggerNote(targetFreqRef.current, 0);
+            }
+          };
+
+          const playParakeetChatter = async () => {
+            if (!hasStarted) { setHasStarted(true); initAudio(); }
+            isPlayingMelodyRef.current = false;
+            await new Promise(r => setTimeout(r, 50));
+
+            setActiveMelody('parakeet');
+            setIsInteracting(true);
+            isInteractingRef.current = true;
+            isPlayingMelodyRef.current = true;
+            parakeetModeRef.current = true;
+
+            // Switch to sine wave for cleaner tonal quality (budgie calls are tonal)
+            if (oscillatorRef.current) oscillatorRef.current.type = 'sine';
+
+            const contactChirpUp = () => ({
+              freq: 2400 + Math.random() * 600,
+              amp: 0.7 + Math.random() * 0.2,
+              duration: 120 + Math.random() * 80,
+              fmRate: 8 + Math.random() * 6,
+              fmDepth: 300 + Math.random() * 400,
+              amRate: 30 + Math.random() * 15,
+              amDepth: 0.03 + Math.random() * 0.02
+            });
+
+            const contactChirpDown = () => ({
+              freq: 3200 + Math.random() * 500,
+              amp: 0.6 + Math.random() * 0.25,
+              duration: 100 + Math.random() * 100,
+              fmRate: 10 + Math.random() * 8,
+              fmDepth: 250 + Math.random() * 350,
+              amRate: 25 + Math.random() * 20,
+              amDepth: 0.02 + Math.random() * 0.03
+            });
+
+            const shortHarmonic = () => ({
+              freq: 2800 + Math.random() * 800,
+              amp: 0.5 + Math.random() * 0.3,
+              duration: 40 + Math.random() * 50,
+              fmRate: 4 + Math.random() * 4,
+              fmDepth: 50 + Math.random() * 100,
+              amRate: 35,
+              amDepth: 0.01
+            });
+
+            const chatterBurst = () => ({
+              freq: 2600 + Math.random() * 400,
+              amp: 0.55 + Math.random() * 0.25,
+              duration: 70 + Math.random() * 40,
+              fmRate: 15 + Math.random() * 10,
+              fmDepth: 150 + Math.random() * 200,
+              amRate: 33 + Math.random() * 8,
+              amDepth: 0.04 + Math.random() * 0.03
+            });
+
+            const pureTone = () => ({
+              freq: 3000 + Math.random() * 500,
+              amp: 0.4 + Math.random() * 0.2,
+              duration: 150 + Math.random() * 100,
+              fmRate: 2,
+              fmDepth: 20 + Math.random() * 30,
+              amRate: 5,
+              amDepth: 0.005
+            });
+
+            const silence = () => ({
+              freq: 0, amp: 0,
+              duration: 80 + Math.random() * 120,
+              fmRate: 0, fmDepth: 0, amRate: 0, amDepth: 0
+            });
+
+            const generators = [
+              contactChirpUp, silence, contactChirpUp, contactChirpDown, silence,
+              chatterBurst, chatterBurst, chatterBurst, shortHarmonic, chatterBurst,
+              silence,
+              contactChirpDown, shortHarmonic, shortHarmonic,
+              silence,
+              chatterBurst, chatterBurst, shortHarmonic, chatterBurst, chatterBurst,
+              chatterBurst, pureTone,
+              silence,
+              contactChirpUp, contactChirpDown, silence,
+              chatterBurst, chatterBurst, chatterBurst, shortHarmonic,
+              silence,
+              contactChirpUp, pureTone, silence,
+              chatterBurst, chatterBurst, contactChirpUp, contactChirpDown,
+              silence, silence
+            ];
+
+            for (let i = 0; i < generators.length; i++) {
+              if (!isPlayingMelodyRef.current) break;
+
+              const el = generators[i]();
+
+              if (el.amp === 0) {
+                silenceParakeetMod();
+                triggerNote(targetFreqRef.current, 0);
+                await new Promise(r => setTimeout(r, el.duration));
+              } else {
+                triggerParakeetNote(el.freq, el.amp, el.fmRate, el.fmDepth, el.amRate, el.amDepth);
+                await new Promise(r => setTimeout(r, el.duration * 0.75));
+                triggerNote(el.freq, 0);
+                silenceParakeetMod();
+                await new Promise(r => setTimeout(r, el.duration * 0.25));
+              }
+            }
+
+            if (isPlayingMelodyRef.current) {
+              silenceParakeetMod();
+              triggerNote(targetFreqRef.current, 0);
+              setIsInteracting(false);
+              isInteractingRef.current = false;
+              isPlayingMelodyRef.current = false;
+              parakeetModeRef.current = false;
+              setActiveMelody(null);
+            }
+          };
+
+          const stopMelody = () => {
+            isPlayingMelodyRef.current = false;
+            parakeetModeRef.current = false;
+            silenceParakeetMod();
+            setIsInteracting(false);
+            isInteractingRef.current = false;
+            setActiveMelody(null);
+            triggerNote(targetFreqRef.current, 0);
+          };
+
+          const enterParakeetMode = () => {
+            if (!hasStarted) { setHasStarted(true); initAudio(); }
+            if (isPlayingMelodyRef.current) stopMelody();
+
+            // Save current settings before overriding
+            prePkSettingsRef.current = {
+              minFreq: minFreqRef.current,
+              maxFreq: maxFreqRef.current,
+              waveSource: waveSourceRef.current,
+              waveType: waveTypeRef.current,
+              harmonics: harmonicsRef.current ? [...harmonicsRef.current] : null,
+              adsr: { ...adsrRef.current },
+              filterType: filterTypeRef.current,
+              filterCutoff: filterCutoffRef.current,
+              resonance: resonanceRef.current,
+              lfoRate: lfoRateRef.current,
+              lfoDepth: lfoDepthRef.current,
+              lfoTarget: lfoTargetRef.current,
+            };
+
+            // Set parakeet frequency range
+            minFreqRef.current = 200;
+            maxFreqRef.current = 8000;
+
+            // Bright, breathy harmonic profile
+            // Strong fundamental + odd harmonics with slow rolloff = reedy/chirpy tone
+            const pkHarmonics = [1, 0.1, 0.6, 0.05, 0.35, 0.03, 0.2, 0.02, 0.12, 0.01, 0.08, 0.01, 0.05, 0, 0.03, 0];
+            setHarmonics(pkHarmonics);
+            setWaveSource('harmonics');
+
+            // Snappy chirp envelope
+            setAdsr({ a: 0.002, d: 0.03, s: 0.2, r: 0.04 });
+
+            // Bandpass filter with resonant peak
+            setFilterType('bandpass');
+            setFilterCutoff(3500);
+            setResonance(0.35);
+
+            // Light natural vibrato
+            setLfoRate(12);
+            setLfoDepth(0.15);
+            setLfoTarget('pitch');
+
+            parakeetModeRef.current = true;
+            setParakeetMode(true);
+          };
+
+          const exitParakeetMode = () => {
+            parakeetModeRef.current = false;
+            setParakeetMode(false);
+
+            // Restore saved settings
+            const saved = prePkSettingsRef.current;
+            if (saved) {
+              minFreqRef.current = saved.minFreq;
+              maxFreqRef.current = saved.maxFreq;
+
+              if (saved.waveSource === 'preset') {
+                setWaveType(saved.waveType);
+                setWaveSource('preset');
+              } else if (saved.waveSource === 'harmonics' && saved.harmonics) {
+                setHarmonics(saved.harmonics);
+                setWaveSource('harmonics');
+              } else {
+                setWaveSource(saved.waveSource);
+              }
+
+              setAdsr(saved.adsr);
+              setFilterType(saved.filterType);
+              setFilterCutoff(saved.filterCutoff);
+              setResonance(saved.resonance);
+              setLfoRate(saved.lfoRate);
+              setLfoDepth(saved.lfoDepth);
+              setLfoTarget(saved.lfoTarget);
+
+              prePkSettingsRef.current = null;
+            }
+          };
+
+          const handlePointerDown = async (e) => {
+            if (isPlayingMelodyRef.current) stopMelody();
+            if (!hasStarted) {
+              setHasStarted(true);
+              try {
+                await initAudio();
+                console.log('[audio-diag] initAudio OK, ctx:', audioCtxRef.current?.state);
+              } catch(err) {
+                console.error('[audio-diag] initAudio FAILED:', err);
+              }
+              // Diagnostic test beep — if you can hear this, the audio chain works
+              try {
+                const testCtx = audioCtxRef.current;
+                if (testCtx) {
+                  const testOsc = testCtx.createOscillator();
+                  const testGain = testCtx.createGain();
+                  testOsc.frequency.value = 440;
+                  testGain.gain.value = 0.3;
+                  testOsc.connect(testGain);
+                  testGain.connect(testCtx.destination);
+                  testOsc.start();
+                  testGain.gain.setValueAtTime(0.3, testCtx.currentTime);
+                  testGain.gain.linearRampToValueAtTime(0, testCtx.currentTime + 0.15);
+                  testOsc.stop(testCtx.currentTime + 0.2);
+                  console.log('[audio-diag] Test beep fired, ctx state:', testCtx.state);
+                } else {
+                  console.log('[audio-diag] No AudioContext after initAudio!');
+                }
+              } catch(err) { console.log('[audio-diag] Beep error:', err); }
+            }
+            if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+              await audioCtxRef.current.resume();
+              console.log('[audio-diag] ctx resumed, state:', audioCtxRef.current.state);
+            }
+
+            setIsInteracting(true);
+            isInteractingRef.current = true;
+            updateSoundFromPointer(e);
+          };
+
+          const handlePointerMove = (e) => {
+            if (!isInteractingRef.current || isPlayingMelodyRef.current) return;
+            updateSoundFromPointer(e);
+          };
+
+          const handlePointerUp = () => {
+            if (isPlayingMelodyRef.current) return;
+            setIsInteracting(false);
+            isInteractingRef.current = false;
+            triggerNote(targetFreqRef.current, 0);
+          };
+
+          const updateSoundFromPointer = (e) => {
+            if (!containerRef.current) return;
+            const rect = containerRef.current.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            let x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+            let y = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+
+            const minFreq = minFreqRef.current;
+            const maxFreq = maxFreqRef.current;
+            const newFreq = minFreq * Math.pow(maxFreq / minFreq, x);
+            const newAmp = 1 - y; 
+
+            triggerNote(newFreq, newAmp);
+          };
+
+          // Main Render Loop with robust ResizeObserver to prevent squishing
+          useEffect(() => {
+            const canvas = canvasRef.current;
+            const ctx = canvas.getContext('2d');
+            let width = canvas.width;
+            let height = canvas.height;
+
+            const resize = () => {
+              if (!containerRef.current) return;
+              const rect = containerRef.current.getBoundingClientRect();
+              
+              // Prevent resizing to 0 if the DOM is still loading
+              if (rect.width === 0 || rect.height === 0) return;
+              
+              const dpr = window.devicePixelRatio || 1;
+              const targetWidth = rect.width * dpr;
+              const targetHeight = rect.height * dpr;
+              
+              // Only update if dimensions actually changed to avoid unnecessary clears
+              if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+                canvas.width = targetWidth;
+                canvas.height = targetHeight;
+                ctx.scale(dpr, dpr);
+                width = rect.width;
+                height = rect.height;
+              }
+            };
+
+            // Modern ResizeObserver completely fixes the flexbox aspect ratio squish bug
+            const resizeObserver = new ResizeObserver(() => {
+              window.requestAnimationFrame(resize);
+            });
+            
+            if (containerRef.current) {
+              resizeObserver.observe(containerRef.current);
+              resize();
+            }
+
+            const render = () => {
+              timeRef.current += 0.015;
+              const t = timeRef.current;
+
+              const targetAmp = isInteractingRef.current ? targetAmpRef.current : 0;
+              currentAmpRef.current += (targetAmp - currentAmpRef.current) * 0.1;
+              currentFreqRef.current += (targetFreqRef.current - currentFreqRef.current) * 0.1;
+              
+// --- Color history system ---
+// Compute current note's color from frequency + amplitude
+const freq = currentFreqRef.current;
+const amp = currentAmpRef.current;
+
+// Hue: mapped to position within octave, full 360 cycle per octave
+// log2(freq/110) gives octave number; fractional part = position in octave
+const octavePos = Math.log2(freq / minFreqRef.current); // 0 at 110Hz, ~3 at 880Hz
+const noteHue = ((octavePos % 1) * 360 + 360) % 360;
+
+// Saturation: higher octaves + higher amplitude = more saturated
+const noteSat = Math.min(100, 30 + Math.min(octavePos, 3) * 15 + amp * 30);
+
+// Lightness: dim when quiet, vivid when loud — capped at 50% to stay neon, never whitewash
+const noteLight = 10 + amp * 40;
+
+// Update color history
+const history = colorHistoryRef.current;
+const freqDelta = Math.abs(freq - lastRecordedFreqRef.current);
+
+if (isInteractingRef.current && amp > 0.02) {
+  colorAccumRef.current++;
+
+  // If the note shifted meaningfully, push a new history entry
+  if (freqDelta > 18 && colorAccumRef.current > 4) {
+    // Assign a phase angle based on time for angular distribution
+    const entryPhase = (t * 0.7 + history.length * 1.3) % (Math.PI * 2);
+    history.unshift({
+      h: noteHue,
+      s: noteSat,
+      l: noteLight,
+      dom: 1,
+      phase: entryPhase
+    });
+    // Cap at 10 entries
+    if (history.length > 10) history.pop();
+    lastRecordedFreqRef.current = freq;
+    colorAccumRef.current = 0;
+  } else {
+    // Same note held: increase dominance of newest entry, update its L
+    if (history.length > 0) {
+      history[0].dom = Math.min(history[0].dom + 0.06, 12);
+      // Smoothly update lightness to track amplitude changes
+      history[0].l += (noteLight - history[0].l) * 0.1;
+      history[0].h += (noteHue - history[0].h) * 0.05; // gentle hue drift
+      history[0].s += (noteSat - history[0].s) * 0.08;
+    }
+  }
+} else {
+  // Not interacting: slowly dim all entries' lightness but preserve hue/sat
+  for (let i = 0; i < history.length; i++) {
+    history[i].l = Math.max(8, history[i].l - 0.03);
+  }
+}
+
+// --- Compute per-ring target colors from history ---
+// Ring 0 (inner) = newest colors, Ring 3 (outer) = oldest
+// Each ring blends 2-3 history entries weighted by temporal position + dominance
+const hLen = history.length;
+const rc = ringColorsRef.current;
+const rc2 = ringColors2Ref.current;
+
+for (let j = 0; j < 4; j++) {
+  // Primary history index for this ring
+  const centerIdx = (j / 3) * (hLen - 1); // 0 for ring 0, hLen-1 for ring 3
+  let totalW = 0, wH = 0, wS = 0, wL = 0;
+  // Secondary color: offset by half a step for angular blending
+  let totalW2 = 0, wH2 = 0, wS2 = 0, wL2 = 0;
+  const secondaryIdx = Math.min(centerIdx + 1.5, hLen - 1);
+
+  for (let i = 0; i < hLen; i++) {
+    const e = history[i];
+    // Gaussian-like falloff from this ring's ideal history position
+    const dist = i - centerIdx;
+    const w = e.dom * Math.exp(-dist * dist * 0.3);
+    totalW += w;
+
+    // Hue blending needs circular averaging
+    // Convert to cartesian, blend, convert back
+    const hRad = e.h * Math.PI / 180;
+    wH += Math.cos(hRad) * w;
+    wS += Math.sin(hRad) * w; // reusing wS name temporarily for sin component
+    wL += e.l * w;
+
+    // Secondary
+    const dist2 = i - secondaryIdx;
+    const w2 = e.dom * Math.exp(-dist2 * dist2 * 0.3);
+    totalW2 += w2;
+    wH2 += Math.cos(hRad) * w2;
+    wS2 += Math.sin(hRad) * w2;
+    wL2 += e.l * w2;
+  }
+
+  if (totalW > 0.001) {
+    const targetH = ((Math.atan2(wS / totalW, wH / totalW) * 180 / Math.PI) + 360) % 360;
+    // Now compute actual saturation blend (we hijacked wS above for hue)
+    let satBlend = 0;
+    for (let i = 0; i < hLen; i++) {
+      const dist = i - centerIdx;
+      const w = history[i].dom * Math.exp(-dist * dist * 0.3);
+      satBlend += history[i].s * w;
+    }
+    const targetS = satBlend / totalW;
+    const targetL = wL / totalW;
+
+    // Smooth lerp toward target (slow for fluid transitions)
+    const lerpRate = 0.035;
+    // Circular hue lerp
+    let dh = targetH - rc[j].h;
+    if (dh > 180) dh -= 360;
+    if (dh < -180) dh += 360;
+    rc[j].h = ((rc[j].h + dh * lerpRate) + 360) % 360;
+    rc[j].s += (targetS - rc[j].s) * lerpRate;
+    rc[j].l += (targetL - rc[j].l) * lerpRate * 1.5; // lightness responds a bit faster
+  }
+
+  if (totalW2 > 0.001) {
+    const targetH2 = ((Math.atan2(wS2 / totalW2, wH2 / totalW2) * 180 / Math.PI) + 360) % 360;
+    let satBlend2 = 0;
+    for (let i = 0; i < hLen; i++) {
+      const dist2 = i - secondaryIdx;
+      const w2 = history[i].dom * Math.exp(-dist2 * dist2 * 0.3);
+      satBlend2 += history[i].s * w2;
+    }
+    const targetS2 = satBlend2 / totalW2;
+    const targetL2 = wL2 / totalW2;
+
+    const lerpRate2 = 0.025;
+    let dh2 = targetH2 - rc2[j].h;
+    if (dh2 > 180) dh2 -= 360;
+    if (dh2 < -180) dh2 += 360;
+    rc2[j].h = ((rc2[j].h + dh2 * lerpRate2) + 360) % 360;
+    rc2[j].s += (targetS2 - rc2[j].s) * lerpRate2;
+    rc2[j].l += (targetL2 - rc2[j].l) * lerpRate2 * 1.5;
+  }
+}
+// --- End color history system ---
+
+              ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+              ctx.fillRect(0, 0, width, height);
+
+              const centerX = width / 2;
+              const centerY = height / 2;
+              
+              const scaleFactor = Math.min(width, height);
+              const baseRadius = scaleFactor * 0.15; 
+              
+              const minF = minFreqRef.current;
+              const maxF = maxFreqRef.current;
+              const numPetals = 2 + ((currentFreqRef.current - minF) / (maxF - minF)) * 12; 
+              const n1 = Math.floor(numPetals);
+              const n2 = Math.ceil(numPetals);
+              const fraction = numPetals - n1;
+
+              ctx.lineJoin = 'round';
+              ctx.lineCap = 'round';
+
+              ctx.save();
+              ctx.translate(centerX, centerY);
+              ctx.rotate(t * 0.2); 
+              ctx.translate(-centerX, -centerY);
+
+// Number of angular segments per ring for color blending
+const SEG_COUNT = 24;
+const SEG_STEP = (Math.PI * 2) / SEG_COUNT;
+// Angular resolution for shape within each segment
+const SHAPE_STEP = 0.08;
+
+// Precompute the full ring shape points for each ring
+const ringPoints = [];
+for (let j = 0; j < 4; j++) {
+  const ringOffset = j * (scaleFactor * 0.02) * (1 + currentAmpRef.current);
+  const phase = t * (1 + j * 0.2);
+  const points = [];
+
+  for (let angle = 0; angle <= Math.PI * 2 + 0.1; angle += SHAPE_STEP) {
+    const wave1 = Math.sin(angle * n1 + phase);
+    const wave2 = Math.sin(angle * n2 + phase);
+    const blendedWave = wave1 * (1 - fraction) + wave2 * fraction;
+
+    let waveShapeNoise = 0;
+    const wt = waveTypeRef.current;
+    const ws = waveSourceRef.current;
+    if (wt === 'square') {
+      waveShapeNoise = Math.sign(Math.sin(angle * n1 * 4 + phase)) * 0.15 * currentAmpRef.current;
+    } else if (wt === 'sawtooth') {
+      waveShapeNoise = (((angle * n1 * 2 / Math.PI) + phase) % 1) * 0.20 * currentAmpRef.current;
+    } else if (wt === 'triangle') {
+      waveShapeNoise = Math.abs((((angle * n1 / Math.PI) + phase) % 2) - 1) * 0.12 * currentAmpRef.current;
+    }
+    // For harmonics/drawn modes, generate complex visual noise from partials
+    if (ws === 'harmonics' && harmonicsRef.current) {
+      const h = harmonicsRef.current;
+      for (let p = 0; p < Math.min(h.length, 6); p++) {
+        waveShapeNoise += Math.sin(angle * (p+1) * n1 + phase * (p+1)) * h[p] * 0.05 * currentAmpRef.current;
+      }
+    } else if (ws === 'drawn') {
+      waveShapeNoise += Math.sin(angle * n1 * 3 + phase * 2) * 0.12 * currentAmpRef.current;
+      waveShapeNoise += Math.sin(angle * n1 * 7 - phase) * 0.06 * currentAmpRef.current;
+    }
+
+    const baseNoise = Math.sin(angle * 30 - t * 5) * (0.04 + resonanceRef.current * 0.25) * currentAmpRef.current;
+    const ampMultiplier = scaleFactor * 0.30;
+    const r = baseRadius + ringOffset + (blendedWave + waveShapeNoise + baseNoise) * (currentAmpRef.current * ampMultiplier);
+
+    points.push({
+      x: centerX + Math.cos(angle) * r,
+      y: centerY + Math.sin(angle) * r,
+      angle: angle
+    });
+  }
+  ringPoints.push(points);
+}
+
+// Draw each ring in angular segments with interpolated colors
+{
+const rc = ringColorsRef.current;
+const rc2 = ringColors2Ref.current;
+
+for (let j = 0; j < 4; j++) {
+  const points = ringPoints[j];
+  const c1 = rc[j];
+  const c2 = rc2[j];
+  const baseAlpha = 0.15 + currentAmpRef.current * 0.65;
+
+  for (let seg = 0; seg < SEG_COUNT; seg++) {
+    const segStart = seg / SEG_COUNT;
+    const segMid = (seg + 0.5) / SEG_COUNT;
+    // Blend factor: sinusoidal so colors wrap smoothly around the ring
+    // Each ring gets a different phase offset so adjacent rings contrast
+    const blendAngle = segMid * Math.PI * 2 + j * 1.2 + t * 0.15;
+    const blend = (Math.sin(blendAngle) + 1) * 0.5; // 0 to 1
+
+    // Circular hue interpolation
+    let dh = c2.h - c1.h;
+    if (dh > 180) dh -= 360;
+    if (dh < -180) dh += 360;
+    const segH = ((c1.h + dh * blend) + 360) % 360;
+    const segS = c1.s + (c2.s - c1.s) * blend;
+    const segL = c1.l + (c2.l - c1.l) * blend;
+
+    // Find the point indices for this segment
+    const iStart = Math.floor(segStart * points.length);
+    const iEnd = Math.min(Math.floor((seg + 1) / SEG_COUNT * points.length) + 1, points.length);
+    if (iEnd <= iStart) continue;
+
+    // Glow pass (wide, dim)
+    ctx.beginPath();
+    for (let i = iStart; i < iEnd; i++) {
+      if (i === iStart) ctx.moveTo(points[i].x, points[i].y);
+      else ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.strokeStyle = `hsla(${segH}, ${segS}%, ${Math.min(segL + 5, 55)}%, ${baseAlpha * 0.3})`;
+    ctx.lineWidth = 8 - j;
+    ctx.stroke();
+
+    // Core pass (thin, bright)
+    ctx.beginPath();
+    for (let i = iStart; i < iEnd; i++) {
+      if (i === iStart) ctx.moveTo(points[i].x, points[i].y);
+      else ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.strokeStyle = `hsla(${segH}, ${Math.min(segS + 20, 100)}%, ${Math.min(segL + 12, 62)}%, ${Math.min(baseAlpha + 0.25, 1)})`;
+    ctx.lineWidth = 2 - j * 0.3;
+    ctx.stroke();
+  }
+}
+}
+
+              ctx.restore();
+
+              // Touch indicator dot
+              if (isInteractingRef.current && currentAmpRef.current > 0.01) {
+                 const minFreq = minFreqRef.current;
+                 const maxFreq = maxFreqRef.current;
+                 const normalizedX = Math.log(Math.max(currentFreqRef.current, minFreq)/minFreq) / Math.log(maxFreq/minFreq);
+                 const px = normalizedX * width;
+                 const py = height - (currentAmpRef.current * height); 
+
+                 ctx.beginPath();
+                 ctx.arc(px, py, 6 + currentAmpRef.current * 8, 0, Math.PI * 2);
+                 const dotColor = ringColorsRef.current[0]; // newest/innermost color
+                 ctx.fillStyle = `hsla(${dotColor.h}, ${Math.min(dotColor.s + 25, 100)}%, ${Math.min(dotColor.l + 10, 58)}%, 0.9)`;
+                 ctx.shadowBlur = 20;
+                 ctx.shadowColor = `hsla(${dotColor.h}, ${Math.min(dotColor.s + 15, 100)}%, ${Math.min(dotColor.l + 5, 50)}%, 1)`;
+                 ctx.fill();
+                 ctx.shadowBlur = 0; 
+              }
+
+              requestRef.current = requestAnimationFrame(render);
+            };
+
+            requestRef.current = requestAnimationFrame(render);
+
+            return () => {
+              resizeObserver.disconnect();
+              cancelAnimationFrame(requestRef.current);
+            };
+          }, []);
+
+          useEffect(() => {
+            return () => {
+              if (lfoOscRef.current) { lfoOscRef.current.stop(); lfoOscRef.current.disconnect(); }
+              if (fmOscRef.current) { fmOscRef.current.stop(); fmOscRef.current.disconnect(); }
+              if (amOscRef.current) { amOscRef.current.stop(); amOscRef.current.disconnect(); }
+              if (oscillatorRef.current) { oscillatorRef.current.stop(); oscillatorRef.current.disconnect(); }
+              if (audioCtxRef.current) audioCtxRef.current.close();
+            };
+          }, []);
+
+          // Lock body scroll when mobile drawer is open
+          useEffect(() => {
+            if (typeof window === 'undefined') return;
+            if (panelOpen && window.innerWidth < 768) {
+              document.body.style.overflow = 'hidden';
+            } else {
+              document.body.style.overflow = '';
+            }
+            return () => { document.body.style.overflow = ''; };
+          }, [panelOpen]);
+
+          const getXPercentForFreq = (freq) => {
+            const minFreq = minFreqRef.current;
+            const maxFreq = maxFreqRef.current;
+            return (Math.log(freq / minFreq) / Math.log(maxFreq / minFreq)) * 100;
+          };
+
+          // Shared panel content rendered in both desktop sidebar and mobile drawer
+          const panelContent = (
+            <>
+                        {/* Parakeet instrument tuning */}
+                        {parakeetMode && (
+                          <div>
+                            <div className="panel-section-label flex items-center gap-2">
+                              Parakeet voice
+                              <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                            </div>
+                            <p className="text-[10px] text-slate-500 mb-2">Drag across the canvas to chirp. Left = low warble, right = high alarm. Up = louder.</p>
+                            <div className="flex flex-col gap-1">
+                              <div className="param-row">
+                                <span className="param-label">Vibrato</span>
+                                <input type="range" min="0" max="30" step="0.5" value={lfoRate}
+                                  onChange={e => setLfoRate(parseFloat(e.target.value))} />
+                                <span className="param-value">{lfoRate.toFixed(0)}Hz</span>
+                              </div>
+                              <div className="param-row">
+                                <span className="param-label">Wobble</span>
+                                <input type="range" min="0" max="1" step="0.01" value={lfoDepth}
+                                  onChange={e => setLfoDepth(parseFloat(e.target.value))} />
+                                <span className="param-value">{(lfoDepth * 100).toFixed(0)}%</span>
+                              </div>
+                              <div className="param-row">
+                                <span className="param-label">Resonance</span>
+                                <input type="range" min="0" max="1" step="0.01" value={resonance}
+                                  onChange={e => setResonance(parseFloat(e.target.value))} />
+                                <span className="param-value">{(resonance * 100).toFixed(0)}%</span>
+                              </div>
+                              <div className="param-row">
+                                <span className="param-label">Attack</span>
+                                <input type="range" min="0.001" max="0.1" step="0.001" value={adsr.a}
+                                  onChange={e => setAdsr(prev => ({...prev, a: parseFloat(e.target.value)}))} />
+                                <span className="param-value">{(adsr.a * 1000).toFixed(0)}ms</span>
+                              </div>
+                              <div className="param-row">
+                                <span className="param-label">Release</span>
+                                <input type="range" min="0.01" max="0.5" step="0.005" value={adsr.r}
+                                  onChange={e => setAdsr(prev => ({...prev, r: parseFloat(e.target.value)}))} />
+                                <span className="param-value">{(adsr.r * 1000).toFixed(0)}ms</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {parakeetMode && <div className="h-px bg-emerald-800/30" />}
+
+                        {/* Wave presets */}
+                          <div className="flex flex-col gap-2">
+                            <div className="panel-section-label">Waveform presets</div>
+                            <div className="grid grid-cols-2 gap-2">
+                              {['sine', 'triangle', 'square', 'sawtooth'].map(wt => (
+                                <button
+                                  key={wt}
+                                  onClick={() => { setWaveType(wt); setWaveSource('preset'); }}
+                                  className={`px-3 py-2 rounded-lg text-xs font-semibold capitalize transition-all border ${
+                                    waveType === wt && waveSource === 'preset'
+                                      ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
+                                      : 'bg-transparent text-slate-500 border-slate-800 hover:text-slate-300 hover:border-slate-700'
+                                  }`}
+                                >
+                                  {wt}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="mt-3 panel-section-label">Resonance (Q)</div>
+                            <div className="param-row">
+                              <span className="param-label">Q</span>
+                              <input type="range" min="0" max="1" step="0.01" value={resonance}
+                                onChange={e => setResonance(parseFloat(e.target.value))} />
+                              <span className="param-value">{(resonance * 25).toFixed(1)}</span>
+                            </div>
+                          </div>
+
+                        <div className="h-px bg-slate-800/40" />
+
+                        {/* Harmonics editor */}
+                          <div className="flex flex-col gap-2">
+                            <div className="panel-section-label">Additive harmonics (16 partials)</div>
+                            <div className="flex gap-[2px]" style={{ height: '80px' }}>
+                              {harmonics.map((val, i) => (
+                                <div key={i} className="harmonic-col">
+                                  <div
+                                    className="harmonic-bar-bg"
+                                    onPointerDown={(e) => {
+                                      const setVal = (ev) => {
+                                        const rect = e.currentTarget.getBoundingClientRect();
+                                        const clientY = ev.clientY || (ev.touches && ev.touches[0].clientY) || 0;
+                                        const y = 1 - Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+                                        setHarmonics(prev => {
+                                          const next = [...prev];
+                                          next[i] = parseFloat(y.toFixed(2));
+                                          return next;
+                                        });
+                                        setWaveSource('harmonics');
+                                      };
+                                      setVal(e);
+                                      const onMove = (ev) => { ev.preventDefault(); setVal(ev); };
+                                      const onUp = () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+                                      window.addEventListener('pointermove', onMove);
+                                      window.addEventListener('pointerup', onUp);
+                                    }}
+                                  >
+                                    <div className="harmonic-bar-fill" style={{ height: `${val * 100}%` }} />
+                                  </div>
+                                  <span className="text-[7px] text-slate-600 font-mono">{i+1}</span>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex gap-2 mt-2">
+                              <button
+                                onClick={() => { const h = new Array(16).fill(0); h[0] = 1; setHarmonics(h); setWaveSource('harmonics'); }}
+                                className="flex-1 text-[9px] text-slate-500 hover:text-slate-300 border border-slate-800 rounded-md py-1 transition-colors"
+                              >Reset</button>
+                              <button
+                                onClick={() => {
+                                  const h = harmonics.map(() => Math.random());
+                                  setHarmonics(h); setWaveSource('harmonics');
+                                }}
+                                className="flex-1 text-[9px] text-slate-500 hover:text-slate-300 border border-slate-800 rounded-md py-1 transition-colors"
+                              >Random</button>
+                              <button
+                                onClick={() => {
+                                  // Odd harmonics only (square-like)
+                                  const h = new Array(16).fill(0).map((_, i) => (i % 2 === 0) ? 1 / (i + 1) : 0);
+                                  setHarmonics(h); setWaveSource('harmonics');
+                                }}
+                                className="flex-1 text-[9px] text-slate-500 hover:text-slate-300 border border-slate-800 rounded-md py-1 transition-colors"
+                              >Odd</button>
+                            </div>
+                          </div>
+
+                        <div className="h-px bg-slate-800/40" />
+
+                        {/* Draw waveform */}
+                          <div className="flex flex-col gap-2">
+                            <div className="panel-section-label">Draw a single wave cycle</div>
+                            <DrawWaveCanvas
+                              drawCanvasRef={drawCanvasRef}
+                              onWaveChange={(samples) => { setDrawnWave(samples); setWaveSource('drawn'); }}
+                            />
+                            <button
+                              onClick={() => {
+                                setDrawnWave(null);
+                                const cvs = drawCanvasRef.current;
+                                if (cvs) {
+                                  const ctx = cvs.getContext('2d');
+                                  ctx.clearRect(0, 0, cvs.width, cvs.height);
+                                  ctx.strokeStyle = '#1e293b';
+                                  ctx.lineWidth = 1;
+                                  ctx.beginPath();
+                                  ctx.moveTo(0, cvs.height / 2);
+                                  ctx.lineTo(cvs.width, cvs.height / 2);
+                                  ctx.stroke();
+                                }
+                              }}
+                              className="text-[9px] text-slate-500 hover:text-slate-300 border border-slate-800 rounded-md py-1 transition-colors"
+                            >Clear</button>
+                          </div>
+
+                        <div className="h-px bg-slate-800/40" />
+
+                        {/* ADSR Envelope */}
+                          <div className="flex flex-col gap-2">
+                            <div className="panel-section-label">Envelope (ADSR)</div>
+                            <ADSRPreview adsr={adsr} canvasRef={adsrCanvasRef} />
+                            <div className="flex flex-col gap-1 mt-2">
+                              <div className="param-row">
+                                <span className="param-label">Attack</span>
+                                <input type="range" min="0.001" max="1" step="0.001" value={adsr.a}
+                                  onChange={e => setAdsr(prev => ({...prev, a: parseFloat(e.target.value)}))} />
+                                <span className="param-value">{(adsr.a * 1000).toFixed(0)}ms</span>
+                              </div>
+                              <div className="param-row">
+                                <span className="param-label">Decay</span>
+                                <input type="range" min="0.001" max="1" step="0.001" value={adsr.d}
+                                  onChange={e => setAdsr(prev => ({...prev, d: parseFloat(e.target.value)}))} />
+                                <span className="param-value">{(adsr.d * 1000).toFixed(0)}ms</span>
+                              </div>
+                              <div className="param-row">
+                                <span className="param-label">Sustain</span>
+                                <input type="range" min="0" max="1" step="0.01" value={adsr.s}
+                                  onChange={e => setAdsr(prev => ({...prev, s: parseFloat(e.target.value)}))} />
+                                <span className="param-value">{(adsr.s * 100).toFixed(0)}%</span>
+                              </div>
+                              <div className="param-row">
+                                <span className="param-label">Release</span>
+                                <input type="range" min="0.01" max="2" step="0.01" value={adsr.r}
+                                  onChange={e => setAdsr(prev => ({...prev, r: parseFloat(e.target.value)}))} />
+                                <span className="param-value">{(adsr.r * 1000).toFixed(0)}ms</span>
+                              </div>
+                            </div>
+                          </div>
+
+                        <div className="h-px bg-slate-800/40" />
+
+                        {/* Filter + LFO */}
+                          <div className="flex flex-col gap-3">
+                            <div>
+                              <div className="panel-section-label">Filter type</div>
+                              <div className="flex gap-1 flex-wrap">
+                                {['lowpass', 'highpass', 'bandpass', 'notch'].map(ft => (
+                                  <button key={ft}
+                                    className={`filter-type-btn ${filterType === ft ? 'active' : ''}`}
+                                    onClick={() => setFilterType(ft)}
+                                  >{ft}</button>
+                                ))}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="panel-section-label">Filter</div>
+                              <div className="param-row">
+                                <span className="param-label">Cutoff</span>
+                                <input type="range" min="50" max="12000" step="10" value={filterCutoff}
+                                  onChange={e => setFilterCutoff(parseFloat(e.target.value))} />
+                                <span className="param-value">{filterCutoff >= 1000 ? (filterCutoff/1000).toFixed(1)+'k' : filterCutoff}</span>
+                              </div>
+                              <div className="param-row">
+                                <span className="param-label">Q</span>
+                                <input type="range" min="0" max="1" step="0.01" value={resonance}
+                                  onChange={e => setResonance(parseFloat(e.target.value))} />
+                                <span className="param-value">{(resonance * 25).toFixed(1)}</span>
+                              </div>
+                            </div>
+                            <div className="h-px bg-slate-800/50 my-1" />
+                            <div>
+                              <div className="panel-section-label">LFO (modulation)</div>
+                              <div className="flex gap-1 mb-2">
+                                <button className={`lfo-target-btn ${lfoTarget === 'pitch' ? 'active' : ''}`}
+                                  onClick={() => setLfoTarget('pitch')}>Vibrato</button>
+                                <button className={`lfo-target-btn ${lfoTarget === 'amplitude' ? 'active' : ''}`}
+                                  onClick={() => setLfoTarget('amplitude')}>Tremolo</button>
+                              </div>
+                              <div className="param-row">
+                                <span className="param-label">Rate</span>
+                                <input type="range" min="0" max="20" step="0.1" value={lfoRate}
+                                  onChange={e => setLfoRate(parseFloat(e.target.value))} />
+                                <span className="param-value">{lfoRate.toFixed(1)}Hz</span>
+                              </div>
+                              <div className="param-row">
+                                <span className="param-label">Depth</span>
+                                <input type="range" min="0" max="1" step="0.01" value={lfoDepth}
+                                  onChange={e => setLfoDepth(parseFloat(e.target.value))} />
+                                <span className="param-value">{(lfoDepth * 100).toFixed(0)}%</span>
+                              </div>
+                            </div>
+                          </div>
+
+                        <div className="h-px bg-slate-800/40" />
+
+                        {/* Reset all */}
+                        <div>
+                          <button
+                            onClick={() => {
+                              if (parakeetModeRef.current) exitParakeetMode();
+                              setWaveType('sine');
+                              setWaveSource('preset');
+                              setResonance(0);
+                              const defaultH = new Array(16).fill(0); defaultH[0] = 1;
+                              setHarmonics(defaultH);
+                              setDrawnWave(null);
+                              setAdsr({ a: 0.01, d: 0.1, s: 0.7, r: 0.15 });
+                              setFilterType('lowpass');
+                              setFilterCutoff(4000);
+                              setLfoRate(0);
+                              setLfoDepth(0);
+                              setLfoTarget('pitch');
+                              colorHistoryRef.current = [{ h: 0, s: 40, l: 15, dom: 1, phase: 0 }];
+                              lastRecordedFreqRef.current = 220;
+                              colorAccumRef.current = 0;
+                              ringColorsRef.current = [
+                                { h: 0, s: 40, l: 15 }, { h: 0, s: 40, l: 15 },
+                                { h: 0, s: 40, l: 15 }, { h: 0, s: 40, l: 15 }
+                              ];
+                              ringColors2Ref.current = [
+                                { h: 0, s: 40, l: 15 }, { h: 0, s: 40, l: 15 },
+                                { h: 0, s: 40, l: 15 }, { h: 0, s: 40, l: 15 }
+                              ];
+                              const cvs = drawCanvasRef.current;
+                              if (cvs) {
+                                const ctx = cvs.getContext('2d');
+                                ctx.clearRect(0, 0, cvs.width, cvs.height);
+                                ctx.strokeStyle = '#1e293b';
+                                ctx.lineWidth = 1;
+                                ctx.beginPath();
+                                ctx.moveTo(0, cvs.height / 2);
+                                ctx.lineTo(cvs.width, cvs.height / 2);
+                                ctx.stroke();
+                              }
+                            }}
+                            className="w-full py-2 rounded-lg text-xs font-semibold border border-red-900/30 text-red-400/70 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/30 transition-all"
+                          >
+                            Reset all to defaults
+                          </button>
+                        </div>
+            </>
+          );
+
+          return (
+            <div className="w-full h-full flex flex-col overflow-hidden bg-black font-sans text-slate-200">
+              
+              {/* Top Navigation & Melody Controls */}
+              <div className="flex justify-between border-b border-slate-800/80 text-sm font-medium tracking-wide bg-black shrink-0">
+                <div className="hidden md:flex">
+                  <div className="px-8 py-4 border-b-2 border-cyan-500 text-cyan-400">Experience</div>
+                  <div className="px-8 py-4 text-slate-600 cursor-not-allowed">Learn</div>
+                </div>
+                
+                <div className="flex items-center px-4 py-2 md:py-0 border-t md:border-t-0 border-slate-800/80 overflow-x-auto">
+                  <IconMusic size={14} className="text-slate-500 mr-3 hidden sm:block shrink-0" />
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      onClick={() => parakeetMode ? exitParakeetMode() : enterParakeetMode()}
+                      className={`flex items-center gap-1.5 px-4 py-2 md:py-1.5 rounded-full text-xs font-bold transition-all ${
+                        parakeetMode
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50'
+                        : 'bg-slate-800/50 text-slate-400 border border-slate-700 hover:bg-slate-800 hover:text-slate-300'
+                      }`}
+                    >
+                      {'\u{1F426}'} Parakeet
+                    </button>
+
+                    <div className="w-px h-5 bg-slate-800 self-center" />
+                    {Object.entries(MELODIES).map(([key, melody]) => (
+                      <button
+                        key={key}
+                        onClick={() => { if (parakeetMode) return; if (activeMelody === key) { stopMelody(); } else if (key === 'parakeet') { playParakeetChatter(); } else { playMelody(key); } }}
+                        disabled={parakeetMode}
+                        className={`flex items-center gap-1.5 px-4 py-2 md:py-1.5 rounded-full text-xs font-bold transition-all ${
+                          activeMelody === key
+                          ? key === 'parakeet'
+                            ? 'bg-green-500/20 text-green-400 border border-green-500/50'
+                            : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50'
+                          : key === 'parakeet'
+                            ? 'bg-emerald-900/30 text-emerald-400 border border-emerald-700 hover:bg-emerald-800/40 hover:text-emerald-300'
+                            : `bg-slate-800/50 border border-slate-700 ${parakeetMode ? 'text-slate-700 cursor-not-allowed' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-300'}`
+                        }`}
+                      >
+                        {activeMelody === key ? <IconSquare size={10} /> : <IconPlay size={10} />}
+                        {melody.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Main Interactive Area */}
+              <div className="flex-1 flex w-full select-none group overflow-hidden relative">
+                {/* Visualization region - fills remaining space */}
+                <div className="flex-1 relative h-full min-w-0">
+                
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.01)_0%,transparent_70%)] pointer-events-none" />
+
+                <div 
+                  ref={containerRef}
+                  className="absolute inset-0 w-full h-full touch-none"
+                >
+                  <canvas 
+                    ref={canvasRef}
+                    className="w-full h-full cursor-crosshair"
+                    onPointerDown={handlePointerDown}
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={handlePointerUp}
+                    onPointerLeave={handlePointerUp}
+                  />
+                </div>
+
+                {/* TOP OVERLAY: Frequency markers */}
+                {!parakeetMode && (
+                  <div className={`absolute top-0 left-0 right-0 h-16 pointer-events-none transition-opacity duration-1000 ${hasStarted ? 'opacity-100' : 'opacity-0'}`}>
+                    {MUSICAL_NOTES.map((note) => {
+                      const isNatural = !note.n.includes('#');
+                      return (
+                        <div
+                          key={note.n}
+                          className="absolute top-0 flex flex-col items-center pointer-events-auto cursor-pointer"
+                          style={{ left: `${getXPercentForFreq(note.f)}%`, transform: 'translateX(-50%)' }}
+                          onPointerDown={async (e) => {
+                            e.stopPropagation();
+                            if (!hasStarted) { setHasStarted(true); try { await initAudio(); } catch(err) { console.error('[audio-diag] note initAudio FAILED:', err); } }
+                            if (audioCtxRef.current?.state === 'suspended') await audioCtxRef.current.resume();
+                            if (isPlayingMelodyRef.current) stopMelody();
+                            triggerNote(note.f, 0.95);
+                            setIsInteracting(true);
+                            isInteractingRef.current = true;
+                          }}
+                          onPointerUp={(e) => {
+                            e.stopPropagation();
+                            handlePointerUp();
+                          }}
+                          onPointerLeave={handlePointerUp}
+                        >
+                          <div className={`w-px bg-cyan-500/30 transition-all ${isNatural ? 'h-6' : 'h-3'}`}></div>
+                          <span className={`text-[10px] mt-1 font-mono tracking-tighter text-cyan-500/50 hover:text-cyan-400 transition-colors ${isNatural ? 'block' : 'hidden md:block'}`}>
+                            {note.n}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {parakeetMode && (
+                  <div className={`absolute top-0 left-0 right-0 h-16 pointer-events-none transition-opacity duration-1000 ${hasStarted ? 'opacity-100' : 'opacity-0'}`}>
+                    {[
+                      { label: 'Low warble', freq: 300, color: 'text-amber-500/50' },
+                      { label: 'Murmur', freq: 600, color: 'text-orange-500/50' },
+                      { label: 'Chatter', freq: 1500, color: 'text-yellow-500/50' },
+                      { label: 'Contact call', freq: 3000, color: 'text-emerald-500/50' },
+                      { label: 'Excited', freq: 5000, color: 'text-cyan-500/50' },
+                      { label: 'Alarm', freq: 7500, color: 'text-rose-500/50' },
+                    ].map((zone) => (
+                      <div
+                        key={zone.label}
+                        className="absolute top-0 flex flex-col items-center pointer-events-auto cursor-pointer"
+                        style={{ left: `${getXPercentForFreq(zone.freq)}%`, transform: 'translateX(-50%)' }}
+                        onPointerDown={async (e) => {
+                          e.stopPropagation();
+                          if (!hasStarted) { setHasStarted(true); try { await initAudio(); } catch(err) { console.error('[audio-diag] parakeet initAudio FAILED:', err); } }
+                          if (audioCtxRef.current?.state === 'suspended') await audioCtxRef.current.resume();
+                          triggerNote(zone.freq, 0.85);
+                          setIsInteracting(true);
+                          isInteractingRef.current = true;
+                        }}
+                        onPointerUp={(e) => {
+                          e.stopPropagation();
+                          handlePointerUp();
+                        }}
+                        onPointerLeave={handlePointerUp}
+                      >
+                        <div className="w-px bg-emerald-500/20 h-6"></div>
+                        <span className={`text-[9px] mt-1 font-mono tracking-tight ${zone.color} hover:text-emerald-400 transition-colors whitespace-nowrap`}>
+                          {zone.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                </div>
+                {/* SYNTH PANEL - Desktop: sidebar, Mobile: bottom drawer */}
+
+                {/* Desktop panel (hidden on mobile) */}
+                <div className={`hidden md:flex flex-col transition-all duration-300 shrink-0 ${hasStarted ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                     style={{ width: panelOpen ? '340px' : '36px' }}>
+
+                  {/* Desktop toggle */}
+                  <button
+                    onClick={() => setPanelOpen(p => !p)}
+                    className="w-full py-2 flex items-center justify-center text-slate-600 hover:text-cyan-400 transition-colors shrink-0 border-b border-slate-800/30"
+                    style={{ fontSize: '12px' }}
+                  >
+                    {panelOpen ? '\u25B6 Hide' : '\u25C0'}
+                  </button>
+
+                  {panelOpen && (
+                    <div className="flex flex-col h-full bg-black/90 border border-slate-800/50 rounded-2xl backdrop-blur-md shadow-2xl overflow-hidden">
+                      <div className="flex-1 panel-scroll p-3 flex flex-col gap-5">
+                        {panelContent}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Mobile drawer tab (visible on mobile only, when drawer is closed) */}
+                {hasStarted && !panelOpen && (
+                  <div
+                    className="md:hidden synth-drawer-tab bg-slate-900 border border-slate-800/60 border-b-0 text-slate-400 active:text-cyan-400"
+                    onClick={() => setPanelOpen(true)}
+                  >
+                    Settings
+                  </div>
+                )}
+
+                {/* Mobile backdrop (visible when drawer is open) */}
+                {panelOpen && (
+                  <div
+                    className="md:hidden synth-drawer-backdrop"
+                    onClick={() => setPanelOpen(false)}
+                  />
+                )}
+
+                {/* Mobile drawer (slides up from bottom) */}
+                <div className={`md:hidden synth-drawer bg-black/95 border-t border-slate-800/50 backdrop-blur-xl ${hasStarted ? '' : 'pointer-events-none'} ${panelOpen ? 'open' : 'closed'}`}>
+
+                  {/* Drawer handle */}
+                  <div
+                    className="flex flex-col items-center pt-2 pb-1 cursor-pointer touch-none"
+                    onClick={() => setPanelOpen(false)}
+                    onTouchStart={(e) => {
+                      const startY = e.touches[0].clientY;
+                      const drawer = e.currentTarget.parentElement;
+                      let currentDelta = 0;
+
+                      const onMove = (ev) => {
+                        const delta = ev.touches[0].clientY - startY;
+                        if (delta > 0) {
+                          currentDelta = delta;
+                          drawer.style.transform = `translateY(${delta}px)`;
+                          drawer.style.transition = 'none';
+                        }
+                      };
+
+                      const onEnd = () => {
+                        drawer.style.transition = '';
+                        if (currentDelta > 80) {
+                          setPanelOpen(false);
+                        }
+                        drawer.style.transform = '';
+                        window.removeEventListener('touchmove', onMove);
+                        window.removeEventListener('touchend', onEnd);
+                      };
+
+                      window.addEventListener('touchmove', onMove, { passive: false });
+                      window.addEventListener('touchend', onEnd);
+                    }}
+                  >
+                    <div className="w-10 h-1 rounded-full bg-slate-700 mb-1"></div>
+                    <span className="text-[10px] text-slate-600">drag or tap to close</span>
+                  </div>
+
+                  {/* All settings - MOBILE */}
+                  <div className="panel-scroll p-4 flex flex-col gap-5" style={{ maxHeight: 'calc(75vh - 40px)', overflowY: 'auto' }}>
+                    {panelContent}
+                  </div>
+                </div>
+
+                {/* Initial State Overlay */}
+                {!hasStarted && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md pointer-events-none transition-opacity duration-700 z-10">
+                    <div className="bg-cyan-500/20 p-6 rounded-full mb-8 animate-pulse border border-cyan-500/30">
+                      <IconVolume size={48} className="text-cyan-400" />
+                    </div>
+                    <h2 className="text-5xl md:text-6xl font-light tracking-tight text-white mb-4 text-center px-4">Shape the Resonance</h2>
+                    <p className="text-slate-400 text-xl md:text-2xl text-center px-4 max-w-lg leading-relaxed">Touch anywhere, drag across the screen, or select a melody to begin.</p>
+                  </div>
+                )}
+
+                {/* Live Data Feedback */}
+                <div className={`absolute bottom-6 md:bottom-10 left-6 md:left-10 pointer-events-none transition-all duration-500 ${isInteracting ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+                  <div className="flex items-center gap-6 md:gap-8 bg-black/80 p-5 md:p-6 rounded-2xl border border-slate-800/50 backdrop-blur-md shadow-2xl">
+                    <div>
+                      <p className="text-[10px] md:text-xs text-cyan-500/80 uppercase tracking-widest font-bold mb-1.5">Frequency</p>
+                      <div className="text-3xl md:text-4xl font-light text-white">
+                        <span ref={freqDisplayRef}>220</span> <span className="text-base text-slate-500 font-medium">Hz</span>
+                      </div>
+                      {parakeetMode && (
+                        <div className="text-[10px] text-emerald-500/60 font-mono mt-0.5" ref={pkZoneLabelRef}></div>
+                      )}
+                    </div>
+                    <div className="h-14 w-px bg-slate-800"></div>
+                    <div>
+                      <p className="text-[10px] md:text-xs text-cyan-500/80 uppercase tracking-widest font-bold mb-1.5">Amplitude</p>
+                      <div className="text-3xl md:text-4xl font-light text-white">
+                        <span ref={ampDisplayRef}>0</span> <span className="text-base text-slate-500 font-medium">%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Axis Labels */}
+                <div className="hidden sm:block absolute left-6 top-1/2 -translate-y-1/2 -rotate-90 text-[10px] font-bold text-slate-700 uppercase tracking-[0.2em] pointer-events-none origin-center">
+                  {parakeetMode ? 'Low warble' : 'Deeper Pitch'}
+                </div>
+              </div>
+
+            </div>
+          );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html> 

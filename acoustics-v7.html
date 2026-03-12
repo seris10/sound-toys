@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acoustic Field Simulation - Superposition</title>
+    <style>
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background-color: #0a0a0f; /* Slightly darker background */
+            font-family: sans-serif;
+        }
+        canvas { display: block; }
+        #ui {
+            position: absolute; top: 20px; left: 20px;
+            background: rgba(0, 0, 0, 0.7); padding: 15px;
+            border-radius: 8px; color: white;
+            border: 1px solid #333;
+        }
+        button {
+            background: #2563eb; color: white; border: none;
+            padding: 8px 16px; border-radius: 4px; cursor: pointer;
+            font-size: 14px; margin-top: 10px; width: 100%;
+            transition: background 0.2s;
+        }
+        button:hover { background: #1d4ed8; }
+        button:active { background: #1e3a8a; } /* Click feedback */
+        label { display: block; margin-top: 8px; }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <h3>Simulation Controls</h3>
+        <label>
+            <input type="checkbox" id="modeToggle" checked> Gaussian Pulse Mode
+        </label>
+        <label>
+            <input type="checkbox" id="vectorToggle" checked> Show 1D Slice Vectors
+        </label>
+        <label>
+            <input type="checkbox" id="shellToggle" checked> Show Wave Shell
+        </label>
+        <label>
+            <input type="checkbox" id="fieldToggle" checked> Show Pressure Field
+        </label>
+        <label>
+            <input type="checkbox" id="guideToggle" checked> Show Density Guide
+        </label>
+        <label>
+            <input type="checkbox" id="insetToggle" checked> Show Pressure Inset
+        </label>
+        <button id="fireButton">Fire Pulse</button>
+        <button id="pauseButton">Pause</button>
+    </div>
+
+    <canvas id="simCanvas"></canvas>
+
+    <script>
+        class AcousticFieldSimulation {
+            constructor(width, height, particleCount) {
+                this.width = width;
+                this.height = height;
+                this.source = { x: width / 2, y: height / 2 };
+                
+                // Wave Parameters
+                this.amplitude = 18;      // Increased for more obvious physical bunching
+                this.wavelength = 120;    
+                this.frequency = 1.0;     
+                this.waveSpeed = this.wavelength * this.frequency;
+                
+                // Derived Math
+                this.k = (2 * Math.PI) / this.wavelength; 
+                this.omega = 2 * Math.PI * this.frequency; 
+                
+                // State Parameters
+                this.isPulseMode = true;
+                this.showVectors = true;
+                this.pulseWidth = 35; 
+                this.globalTime = 0; // Master clock
+                this.pulses = [{ startTime: 0 }]; // Array of active pulses
+                this.isPaused = false;
+                
+                this.phaseShift = -Math.PI / 2; 
+                this.thermalJitter = 0.35;       
+                
+                // Teaching Features State
+                this.highlightedParticleId = null;
+                this.highlightTrail = [];
+                this.maxTrailLength = 32;
+                this.samplePressureHistory = [];
+                this.maxPressureSamples = 220;
+                this.sampleProbe = { x: this.source.x + 220, y: this.source.y };
+                this.showWaveShell = true;
+                this.showPressureField = true;
+                this.showSliceDensityGuides = true;
+                this.showPressureInset = true;
+                this.shellWidth = this.pulseWidth * 1.35;
+                this.shellGlowAlpha = 0.12; // Dimmer shell
+                
+                // Slice and Vector Settings
+                this.sliceHeight = 80; 
+                this.vectorScale = 0.8; 
+                
+                this.particles = [];
+                this.initParticles(particleCount);
+
+                // Select highlighted particle: inside slice, to the right of source
+                let bestScore = Infinity;
+                const targetX = this.source.x + 200;
+                const targetY = this.source.y;
+                for (let p of this.particles) {
+                    const inSlice = Math.abs(p.eqY - targetY) < (this.sliceHeight / 4);
+                    if (inSlice && p.eqX > this.source.x) {
+                        const score = Math.abs(p.eqX - targetX) + Math.abs(p.eqY - targetY);
+                        if (score < bestScore) {
+                            bestScore = score;
+                            this.highlightedParticleId = p.id;
+                        }
+                    }
+                }
+                const hp = this.particles.find(p => p.id === this.highlightedParticleId);
+                if (hp) {
+                    hp.isHighlighted = true;
+                    this.highlightTrail.push({ x: hp.eqX, y: hp.eqY });
+                }
+            }
+
+            initParticles(count) {
+                const area = this.width * this.height;
+                const spacing = Math.sqrt(area / count);
+                const cols = Math.floor(this.width / spacing);
+                const rows = Math.floor(this.height / spacing);
+                const jitter = spacing * 0.25;
+
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        const eqX = (c + 0.5) * spacing + (Math.random() - 0.5) * jitter;
+                        const eqY = (r + 0.5) * spacing + (Math.random() - 0.5) * jitter;
+                        
+                        const dx = eqX - this.source.x;
+                        const dy = eqY - this.source.y;
+                        
+                        this.particles.push({
+                            id: this.particles.length,
+                            eqX: eqX, eqY: eqY,     
+                            r: Math.sqrt(dx * dx + dy * dy),         
+                            theta: Math.atan2(dy, dx), 
+                            currentX: eqX, currentY: eqY,
+                            localPressure: 0,
+                            velocityScalar: 0,
+                            displacementScalar: 0,
+                            isHighlighted: false
+                        });
+                    }
+                }
+            }
+
+            firePulse() {
+                // Instead of resetting time, add a new pulse marked with the current global time
+                this.pulses.push({ startTime: this.globalTime });
+            }
+
+            togglePause() { 
+                this.isPaused = !this.isPaused; 
+            }
+
+            sampleFieldAtPoint(x, y) {
+                const dx = x - this.source.x;
+                const dy = y - this.source.y;
+                const r = Math.sqrt(dx * dx + dy * dy);
+                const theta = Math.atan2(dy, dx);
+                
+                let totalPressure = 0;
+                let totalDisplacement = 0;
+                let totalVelocity = 0;
+
+                if (this.isPulseMode) {
+                    for (let pulse of this.pulses) {
+                        const age = this.globalTime - pulse.startTime;
+                        const waveFrontR = this.waveSpeed * age;
+                        const phase = this.k * r - this.omega * age;
+                        const distFromFront = r - waveFrontR;
+                        const envelope = Math.exp(-(distFromFront * distFromFront) / (2 * this.pulseWidth * this.pulseWidth));
+                        totalPressure += Math.sin(phase) * envelope;
+                        totalDisplacement += this.amplitude * Math.sin(phase + this.phaseShift) * envelope;
+                        totalVelocity += this.amplitude * -this.omega * Math.cos(phase + this.phaseShift) * envelope;
+                    }
+                } else {
+                    const phase = this.k * r - this.omega * this.globalTime;
+                    totalPressure = Math.sin(phase);
+                    totalDisplacement = this.amplitude * Math.sin(phase + this.phaseShift);
+                    totalVelocity = this.amplitude * -this.omega * Math.cos(phase + this.phaseShift);
+                }
+                return { pressure: totalPressure, displacement: totalDisplacement, velocity: totalVelocity };
+            }
+
+            update(dt) {
+                this.globalTime += dt;
+                
+                // Calculate maximum diagonal distance to know when a pulse is off-screen
+                const maxScreenDist = Math.sqrt(this.width * this.width + this.height * this.height);
+
+                // Garbage Collection: Remove pulses that have expanded completely off-screen
+                this.pulses = this.pulses.filter(pulse => {
+                    const age = this.globalTime - pulse.startTime;
+                    const frontR = this.waveSpeed * age;
+                    // Keep the pulse if its trailing edge is still visible
+                    return (frontR - this.pulseWidth * 3) < maxScreenDist;
+                });
+
+                for (let p of this.particles) {
+                    let totalPressure = 0;
+                    let totalDisplacement = 0;
+                    let totalVelocity = 0;
+
+                    if (this.isPulseMode) {
+                        // Superposition: Sum the effects of all active pulses
+                        for (let pulse of this.pulses) {
+                            const age = this.globalTime - pulse.startTime;
+                            const waveFrontR = this.waveSpeed * age;
+                            
+                            // Phase is relative to the pulse's age
+                            const phase = this.k * p.r - this.omega * age;
+                            
+                            const distFromFront = p.r - waveFrontR;
+                            const envelope = Math.exp(-(distFromFront * distFromFront) / (2 * this.pulseWidth * this.pulseWidth));
+
+                            totalPressure += Math.sin(phase) * envelope;
+                            totalDisplacement += this.amplitude * Math.sin(phase + this.phaseShift) * envelope;
+                            totalVelocity += this.amplitude * -this.omega * Math.cos(phase + this.phaseShift) * envelope;
+                        }
+                    } else {
+                        // Continuous wave mode (just uses global time)
+                        const phase = this.k * p.r - this.omega * this.globalTime;
+                        totalPressure = Math.sin(phase);
+                        totalDisplacement = this.amplitude * Math.sin(phase + this.phaseShift);
+                        totalVelocity = this.amplitude * -this.omega * Math.cos(phase + this.phaseShift);
+                    }
+
+                    p.localPressure = totalPressure;
+                    p.velocityScalar = totalVelocity;
+                    p.displacementScalar = totalDisplacement;
+
+                    let newX = p.eqX + Math.cos(p.theta) * totalDisplacement;
+                    let newY = p.eqY + Math.sin(p.theta) * totalDisplacement;
+
+                    newX += (Math.random() - 0.5) * this.thermalJitter;
+                    newY += (Math.random() - 0.5) * this.thermalJitter;
+
+                    p.currentX = newX;
+                    p.currentY = newY;
+                }
+
+                // Update highlight trail
+                const hp = this.particles.find(p => p.id === this.highlightedParticleId);
+                if (hp) {
+                    this.highlightTrail.push({ x: hp.currentX, y: hp.currentY });
+                    if (this.highlightTrail.length > this.maxTrailLength) {
+                        this.highlightTrail.shift();
+                    }
+                }
+
+                // Sample field at probe point
+                const sample = this.sampleFieldAtPoint(this.sampleProbe.x, this.sampleProbe.y);
+                this.samplePressureHistory.push(sample.pressure);
+                if (this.samplePressureHistory.length > this.maxPressureSamples) {
+                    this.samplePressureHistory.shift();
+                }
+            }
+
+            drawArrow(ctx, x, y, angle, magnitude) {
+                const length = magnitude * this.vectorScale;
+                if (Math.abs(length) < 2.0) return; 
+
+                const endX = x + Math.cos(angle) * length;
+                const endY = y + Math.sin(angle) * length;
+
+                ctx.strokeStyle = '#ffcc00'; 
+                ctx.lineWidth = 2.0; 
+                
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                ctx.lineTo(endX, endY);
+                ctx.stroke();
+
+                const headLength = 6; 
+                const directionAngle = length > 0 ? angle : angle + Math.PI;
+                
+                ctx.beginPath();
+                ctx.moveTo(endX, endY);
+                ctx.lineTo(endX - headLength * Math.cos(directionAngle - Math.PI / 6), 
+                           endY - headLength * Math.sin(directionAngle - Math.PI / 6));
+                ctx.lineTo(endX - headLength * Math.cos(directionAngle + Math.PI / 6), 
+                           endY - headLength * Math.sin(directionAngle + Math.PI / 6));
+                ctx.lineTo(endX, endY);
+                ctx.fillStyle = '#ffcc00';
+                ctx.fill();
+            }
+
+            drawWaveShell(ctx) {
+                if (!this.showWaveShell || !this.isPulseMode) return;
+                
+                for (let pulse of this.pulses) {
+                    const age = this.globalTime - pulse.startTime;
+                    const frontR = this.waveSpeed * age;
+                    if (frontR < 0) continue;
+
+                    // Thinner, dimmer secondary shell
+                    ctx.beginPath();
+                    ctx.strokeStyle = `rgba(100, 200, 255, ${this.shellGlowAlpha * 0.5})`;
+                    ctx.lineWidth = this.shellWidth * 0.5;
+                    ctx.arc(this.source.x, this.source.y, frontR, 0, Math.PI * 2);
+                    ctx.stroke();
+                    
+                    ctx.beginPath();
+                    ctx.strokeStyle = `rgba(200, 240, 255, ${this.shellGlowAlpha})`;
+                    ctx.lineWidth = 1;
+                    ctx.arc(this.source.x, this.source.y, frontR, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            }
+
+            drawPressureField(ctx) {
+                if (!this.showPressureField || !this.isPulseMode) return;
+                
+                for (let pulse of this.pulses) {
+                    const age = this.globalTime - pulse.startTime;
+                    const frontR = this.waveSpeed * age;
+                    if (frontR < 0) continue;
+
+                    // Draw soft concentric bands representing phase
+                    // We sample a few offsets around frontR to show the sinusoidal nature
+                    for (let i = -2; i <= 2; i++) {
+                        const dr = i * (this.wavelength / 4);
+                        const r = frontR + dr;
+                        if (r < 0) continue;
+
+                        const phase = this.k * r - this.omega * age;
+                        const distFromFront = r - frontR;
+                        const envelope = Math.exp(-(distFromFront * distFromFront) / (2 * this.pulseWidth * this.pulseWidth));
+                        const p = Math.sin(phase) * envelope;
+                        
+                        if (Math.abs(p) < 0.1) continue;
+
+                        ctx.beginPath();
+                        const color = p > 0 ? `rgba(100, 255, 255, ${Math.abs(p) * 0.08})` : `rgba(100, 100, 255, ${Math.abs(p) * 0.05})`;
+                        ctx.strokeStyle = color;
+                        ctx.lineWidth = this.wavelength / 4;
+                        ctx.arc(this.source.x, this.source.y, r, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+                }
+            }
+
+            drawSliceDensityGuides(ctx) {
+                if (!this.showSliceDensityGuides || !this.showVectors) return;
+                
+                const sliceY = this.source.y;
+                const sliceH = this.sliceHeight;
+                const sampleRes = 20; // x-resolution
+                
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+                for (let x = 0; x < this.width; x += sampleRes) {
+                    // Estimate density by sampling field at point
+                    const sample = this.sampleFieldAtPoint(x, sliceY);
+                    const densityShift = -sample.pressure * 10; // Simple inverse mapping
+                    
+                    if (Math.abs(densityShift) > 1) {
+                        ctx.fillRect(x, sliceY - sliceH/2, sampleRes - 2, densityShift);
+                        ctx.fillRect(x, sliceY + sliceH/2 - densityShift, sampleRes - 2, densityShift);
+                    }
+                }
+            }
+
+            drawHighlightedParticle(ctx) {
+                const hp = this.particles.find(p => p.id === this.highlightedParticleId);
+                if (!hp) return;
+
+                // Equilibrium marker
+                ctx.beginPath();
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.lineWidth = 1;
+                ctx.arc(hp.eqX, hp.eqY, 4, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Guideline from equilibrium to current
+                ctx.beginPath();
+                ctx.strokeStyle = 'rgba(100, 255, 255, 0.3)';
+                ctx.setLineDash([2, 2]);
+                ctx.moveTo(hp.eqX, hp.eqY);
+                ctx.lineTo(hp.currentX, hp.currentY);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Motion Trail
+                for (let i = 0; i < this.highlightTrail.length; i++) {
+                    const p = this.highlightTrail[i];
+                    const alpha = (i / this.highlightTrail.length) * 0.5;
+                    ctx.fillStyle = `rgba(100, 255, 255, ${alpha})`;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // Brighter Highlighted Particle
+                ctx.fillStyle = '#fff';
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#0ff';
+                ctx.beginPath();
+                ctx.arc(hp.currentX, hp.currentY, 4, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+
+            drawPressureInset(ctx) {
+                if (!this.showPressureInset) return;
+                const width = 200;
+                const height = 100;
+                const x = this.width - width - 20;
+                const y = 20;
+
+                // Panel
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(x, y, width, height);
+                ctx.strokeStyle = '#444';
+                ctx.strokeRect(x, y, width, height);
+
+                ctx.fillStyle = '#fff';
+                ctx.font = '10px sans-serif';
+                ctx.fillText('Pressure at Fixed Point', x + 10, y + 15);
+
+                // Center Line
+                ctx.beginPath();
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+                ctx.moveTo(x + 10, y + height / 2 + 10);
+                ctx.lineTo(x + width - 10, y + height / 2 + 10);
+                ctx.stroke();
+
+                // Waveform
+                ctx.beginPath();
+                ctx.strokeStyle = '#0ff';
+                ctx.lineWidth = 1.5;
+                for (let i = 0; i < this.samplePressureHistory.length; i++) {
+                    const px = x + 10 + (i / this.maxPressureSamples) * (width - 20);
+                    const py = y + height / 2 + 10 - this.samplePressureHistory[i] * 25;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.stroke();
+            }
+
+            drawProbeMarker(ctx) {
+                ctx.beginPath();
+                ctx.strokeStyle = '#ff0';
+                ctx.lineWidth = 1;
+                const s = 5;
+                ctx.moveTo(this.sampleProbe.x - s, this.sampleProbe.y);
+                ctx.lineTo(this.sampleProbe.x + s, this.sampleProbe.y);
+                ctx.moveTo(this.sampleProbe.x, this.sampleProbe.y - s);
+                ctx.lineTo(this.sampleProbe.x, this.sampleProbe.y + s);
+                ctx.stroke();
+                
+                ctx.fillStyle = '#ff0';
+                ctx.font = '10px sans-serif';
+                ctx.fillText('probe', this.sampleProbe.x + 8, this.sampleProbe.y + 4);
+            }
+
+            render(ctx) {
+                ctx.clearRect(0, 0, this.width, this.height);
+
+                // 2. Pressure Field (soft background)
+                this.drawPressureField(ctx);
+
+                // 3. Wave Shell (locator line)
+                this.drawWaveShell(ctx);
+
+                // 4. Slice Band
+                if (this.showVectors) {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.05)'; 
+                    ctx.fillRect(0, this.source.y - (this.sliceHeight / 2), this.width, this.sliceHeight);
+                }
+
+                // 5. Density Guide (inside slice)
+                this.drawSliceDensityGuides(ctx);
+
+                // 6. Normal Particles (density-based mapping)
+                for (let p of this.particles) {
+                    const inSlice = Math.abs(p.eqY - this.source.y) < (this.sliceHeight / 2);
+                    const clampedPressure = Math.max(-1, Math.min(1, p.localPressure));
+                    
+                    // Emphasize density through position + subtle size/color
+                    // Compression (>0): Shifts toward bright cyan/white
+                    // Rarefaction (<0): Shifts toward dark blue/dimmer
+                    const rVal = Math.floor(50 + clampedPressure * 150); 
+                    const gVal = Math.floor(155 + clampedPressure * 100);
+                    const bVal = 255;
+                    
+                    let alpha = (this.showVectors && !inSlice) ? 0.15 : 1.0;
+                    if (inSlice) alpha = 0.8 + clampedPressure * 0.2; // Compression is brighter, rarefaction is dimmer
+
+                    ctx.fillStyle = `rgba(${Math.max(0, rVal)}, ${Math.max(0, gVal)}, ${bVal}, ${alpha})`; 
+                    
+                    ctx.beginPath();
+                    
+                    // Subtler dynamic radius multiplier
+                    let baseRadius = (this.showVectors && inSlice) ? 1.8 : 1.2;
+                    let dynamicRadius = Math.max(0.5, baseRadius + (clampedPressure * 0.8));
+                    
+                    ctx.arc(p.currentX, p.currentY, dynamicRadius, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // 7. Velocity Arrows (sparser and threshold-based)
+                    if (this.showVectors && inSlice && p.id % 16 === 0) {
+                        const vMag = Math.abs(p.velocityScalar);
+                        if (vMag > 5) {
+                            this.drawArrow(ctx, p.currentX, p.currentY, p.theta, p.velocityScalar);
+                        }
+                    }
+                }
+
+                // 8. Highlighted Particle & Trail
+                this.drawHighlightedParticle(ctx);
+
+                // 9. Probe Marker
+                this.drawProbeMarker(ctx);
+
+                // 10. Pressure Inset
+                this.drawPressureInset(ctx);
+            }
+        }
+
+        // --- Setup and Animation Loop ---
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const sim = new AcousticFieldSimulation(canvas.width, canvas.height, 6000);
+
+        document.getElementById('modeToggle').addEventListener('change', (e) => sim.isPulseMode = e.target.checked);
+        document.getElementById('vectorToggle').addEventListener('change', (e) => sim.showVectors = e.target.checked);
+        document.getElementById('shellToggle').addEventListener('change', (e) => sim.showWaveShell = e.target.checked);
+        document.getElementById('fieldToggle').addEventListener('change', (e) => sim.showPressureField = e.target.checked);
+        document.getElementById('guideToggle').addEventListener('change', (e) => sim.showSliceDensityGuides = e.target.checked);
+        document.getElementById('insetToggle').addEventListener('change', (e) => sim.showPressureInset = e.target.checked);
+        
+        // Fire pulse event
+        document.getElementById('fireButton').addEventListener('click', () => sim.firePulse());
+
+        // Pause event
+        const pauseBtn = document.getElementById('pauseButton');
+        pauseBtn.addEventListener('click', () => {
+            sim.togglePause();
+            pauseBtn.innerText = sim.isPaused ? "Resume" : "Pause";
+        });
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            sim.width = canvas.width;
+            sim.height = canvas.height;
+            sim.source = { x: canvas.width / 2, y: canvas.height / 2 };
+            sim.sampleProbe = { x: sim.source.x + 220, y: sim.source.y };
+        });
+
+        let lastTime = 0;
+        function animate(timestamp) {
+            if (lastTime === 0) lastTime = timestamp;
+            const dt = (timestamp - lastTime) / 1000;
+            lastTime = timestamp;
+
+            if (!sim.isPaused) {
+                sim.update(dt);
+            }
+            sim.render(ctx);
+
+            requestAnimationFrame(animate);
+        }
+
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>

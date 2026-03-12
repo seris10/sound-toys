@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sound Toys</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0a0a0f;
+      color: #e0e0e8;
+      min-height: 100vh;
+    }
+
+    /* Persistent nav bar — visible on index AND inside each toy via iframe */
+    .nav-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 12px;
+      height: 40px;
+      background: rgba(10, 10, 15, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 0.8rem;
+    }
+
+    .nav-bar .nav-home {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #a0a0b0;
+      text-decoration: none;
+      padding: 6px 10px;
+      border-radius: 6px;
+      transition: all 0.15s;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      margin-right: 8px;
+    }
+
+    .nav-bar .nav-home:hover { color: #fff; background: rgba(255, 255, 255, 0.06); }
+    .nav-bar .nav-home.active { color: #fff; }
+
+    .nav-bar .nav-home svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .nav-bar a.nav-link {
+      color: #707080;
+      text-decoration: none;
+      padding: 6px 10px;
+      border-radius: 6px;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+
+    .nav-bar a.nav-link:hover { color: #e0e0e8; background: rgba(255, 255, 255, 0.06); }
+    .nav-bar a.nav-link.active { color: #fff; background: rgba(88, 166, 255, 0.15); }
+
+    .nav-sep {
+      width: 1px;
+      height: 16px;
+      background: rgba(255, 255, 255, 0.1);
+      margin: 0 4px;
+    }
+
+    /* Index page content */
+    .index-content {
+      padding: 40px 24px 60px;
+      padding-top: 72px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .index-header {
+      margin-bottom: 40px;
+    }
+
+    .index-header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .index-header p {
+      color: #808090;
+      font-size: 1rem;
+    }
+
+    /* Featured card */
+    .featured {
+      display: block;
+      text-decoration: none;
+      color: inherit;
+      background: linear-gradient(135deg, rgba(88, 166, 255, 0.08), rgba(120, 80, 255, 0.08));
+      border: 1px solid rgba(88, 166, 255, 0.2);
+      border-radius: 16px;
+      padding: 32px;
+      margin-bottom: 24px;
+      transition: all 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .featured:hover {
+      border-color: rgba(88, 166, 255, 0.4);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(88, 166, 255, 0.1);
+    }
+
+    .featured-badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #58a6ff;
+      background: rgba(88, 166, 255, 0.12);
+      padding: 3px 10px;
+      border-radius: 20px;
+      margin-bottom: 14px;
+    }
+
+    .featured h2 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      letter-spacing: -0.01em;
+    }
+
+    .featured p {
+      color: #909098;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+
+    .featured .launch {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 20px;
+      color: #58a6ff;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+
+    .featured .launch svg {
+      width: 16px;
+      height: 16px;
+      transition: transform 0.15s;
+    }
+
+    .featured:hover .launch svg {
+      transform: translateX(3px);
+    }
+
+    /* Grid for other toys */
+    .toy-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+    }
+
+    .toy-card {
+      display: block;
+      text-decoration: none;
+      color: inherit;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 24px;
+      transition: all 0.2s;
+    }
+
+    .toy-card:hover {
+      border-color: rgba(255, 255, 255, 0.18);
+      background: rgba(255, 255, 255, 0.05);
+      transform: translateY(-2px);
+    }
+
+    .toy-card h3 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .toy-card p {
+      color: #808090;
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+
+    .toy-card .card-tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      color: #606070;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-top: 12px;
+    }
+
+    /* Toy viewer (iframe mode) */
+    .toy-viewer {
+      display: none;
+      position: fixed;
+      top: 40px;
+      left: 0;
+      right: 0;
+      bottom: 0;
+    }
+
+    .toy-viewer.active { display: block; }
+
+    .toy-viewer iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+  </style>
+</head>
+<body>
+
+<nav class="nav-bar" id="navBar">
+  <a href="#" class="nav-home active" data-toy="" onclick="navigate(event, '')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+    Sound Toys
+  </a>
+  <div class="nav-sep"></div>
+  <a href="#" class="nav-link" data-toy="sound-toy-1.html" onclick="navigate(event, 'sound-toy-1.html')">Resonance</a>
+  <a href="#" class="nav-link" data-toy="acoustics-v7.html" onclick="navigate(event, 'acoustics-v7.html')">Acoustics</a>
+  <a href="#" class="nav-link" data-toy="categories-of-sound.html" onclick="navigate(event, 'categories-of-sound.html')">Spectrum</a>
+  <a href="#" class="nav-link" data-toy="types-of-soundwaves-scrubber.html" onclick="navigate(event, 'types-of-soundwaves-scrubber.html')">Wave Types</a>
+</nav>
+
+<div class="index-content" id="indexContent">
+  <div class="index-header">
+    <h1>Sound Toys</h1>
+    <p>Interactive audio experiments and visualizations</p>
+  </div>
+
+  <a href="#" class="featured" onclick="navigate(event, 'sound-toy-1.html')">
+    <div class="featured-badge">Featured</div>
+    <h2>Resonance</h2>
+    <p>Interactive sound wave playground. Manipulate waveforms, frequencies, and harmonics in real time with intuitive controls and rich visual feedback.</p>
+    <div class="launch">
+      Launch
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+    </div>
+  </a>
+
+  <div class="toy-grid">
+    <a href="#" class="toy-card" onclick="navigate(event, 'acoustics-v7.html')">
+      <h3>Acoustic Field Simulation</h3>
+      <p>Visualize pressure waves, vector fields, and Gaussian pulses. Toggle between wave visualization modes in a 2D acoustic simulation.</p>
+      <span class="card-tag">Canvas</span>
+    </a>
+
+    <a href="#" class="toy-card" onclick="navigate(event, 'categories-of-sound.html')">
+      <h3>Sound Spectrum Explorer</h3>
+      <p>Explore how sounds are categorized across different spectra. Browse sound characteristics through an interactive taxonomy.</p>
+      <span class="card-tag">React</span>
+    </a>
+
+    <a href="#" class="toy-card" onclick="navigate(event, 'types-of-soundwaves-scrubber.html')">
+      <h3>Sound Wave Types</h3>
+      <p>Compare how different creatures and biological systems produce sound. Scrub through frequency ranges from elephants to bats.</p>
+      <span class="card-tag">React</span>
+    </a>
+  </div>
+</div>
+
+<div class="toy-viewer" id="toyViewer">
+  <iframe id="toyFrame" sandbox="allow-scripts allow-same-origin allow-popups"></iframe>
+</div>
+
+<script>
+  const indexContent = document.getElementById('indexContent');
+  const toyViewer = document.getElementById('toyViewer');
+  const toyFrame = document.getElementById('toyFrame');
+  const navLinks = document.querySelectorAll('[data-toy]');
+
+  function navigate(e, toy) {
+    e.preventDefault();
+
+    // Update active states
+    navLinks.forEach(link => {
+      link.classList.toggle('active', link.dataset.toy === toy);
+    });
+
+    if (!toy) {
+      // Show index
+      indexContent.style.display = '';
+      toyViewer.classList.remove('active');
+      toyFrame.src = '';
+      history.pushState({}, '', window.location.pathname);
+    } else {
+      // Show toy in iframe
+      indexContent.style.display = 'none';
+      toyViewer.classList.add('active');
+      toyFrame.src = toy;
+      history.pushState({ toy }, '', '#' + toy.replace('.html', ''));
+    }
+  }
+
+  // Handle back/forward
+  window.addEventListener('popstate', function(e) {
+    const toy = e.state?.toy || '';
+    navLinks.forEach(link => link.classList.toggle('active', link.dataset.toy === toy));
+    if (toy) {
+      indexContent.style.display = 'none';
+      toyViewer.classList.add('active');
+      toyFrame.src = toy;
+    } else {
+      indexContent.style.display = '';
+      toyViewer.classList.remove('active');
+      toyFrame.src = '';
+    }
+  });
+
+  // Handle hash on load (e.g. #sound-toy-1)
+  (function() {
+    const hash = window.location.hash.slice(1);
+    if (hash) {
+      const file = hash + '.html';
+      const match = document.querySelector(`[data-toy="${file}"]`);
+      if (match) {
+        navLinks.forEach(link => link.classList.toggle('active', link.dataset.toy === file));
+        indexContent.style.display = 'none';
+        toyViewer.classList.add('active');
+        toyFrame.src = file;
+      }
+    }
+  })();
+</script>
+
+</body>
+</html>

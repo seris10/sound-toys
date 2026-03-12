@@ -1,0 +1,398 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { 
+  Activity, Ear, Radio, Stethoscope, Vibrate, MousePointer2, 
+  CloudLightning, Users, Music, Bird, Bug, Baby, Waves
+} from 'lucide-react';
+
+// --- CUSTOM SVGS FOR SPECIFIC ANIMALS/ORGANS ---
+const ElephantIcon = ({ className }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}>
+    <path d="M4 10v6a2 2 0 002 2h2v-5M18 10v6a2 2 0 01-2 2h-2v-5" />
+    <path d="M12 4c-3 0-6 2-6 5v5c0 1.5 1 3 3 4s3 2 3 5" />
+    <path d="M12 4c3 0 6 2 6 5v5c0 1.5-1 3-3 4" />
+    <circle cx="9" cy="9" r="0.5" fill="currentColor" />
+    <circle cx="15" cy="9" r="0.5" fill="currentColor" />
+    <path d="M2 8c0-3 3-4 5-4" />
+    <path d="M22 8c0-3-3-4-5-4" />
+  </svg>
+);
+
+const BatIcon = ({ className }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}>
+    <path d="M12 10s-1 4-1 6c0 1.5 1 2 1 2s1-.5 1-2c0-2-1-6-1-6z" />
+    <path d="M11 10c-2-3-6-4-9-2 2 4 4 6 9 2z" />
+    <path d="M13 10c2-3 6-4 9-2-2 4-4 6-9 2z" />
+    <path d="M10.5 7L9 4l2 2 1-1 1 1 2-2-1.5 3" />
+  </svg>
+);
+
+const DolphinIcon = ({ className }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}>
+    <path d="M3 15s3-3 7-3 5 2 8 4c1.5 1 3 0 3 0s-2-3-4-4c-3-1.5-6-3-9-1.5S3 15 3 15z" />
+    <path d="M12 9s-1-4-3-4 2 4 2 4z" />
+    <path d="M15 16s-2 2-4 1" />
+  </svg>
+);
+
+const LiverIcon = ({ className }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}>
+    <path d="M20 9c0-3-2-5-5-5-3 0-5 1.5-7 3C5.5 8.5 4 10.5 4 13c0 2 1 3 3 3 3 0 6-1 9-3 2.5-1.5 4-2.5 4-4z" />
+    <path d="M12 14c2 1.5 4 2 6 1" />
+  </svg>
+);
+
+const ThyroidIcon = ({ className }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}>
+    <path d="M12 9c-2-2-4.5-2-6.5 0-1.5 1.5-1.5 4 0 6 2 2 4.5 1 6.5-2 2 3 4.5 4 6.5 2 1.5-2 1.5-4.5 0-6-2-2-4.5-2-6.5 0z" />
+    <path d="M12 9v4" />
+  </svg>
+);
+
+// --- MAIN COMPONENT ---
+export default function SoundSpectrumExplorer() {
+  const containerRef = useRef(null);
+  const canvasRef = useRef(null);
+  
+  const [targetRatio, setTargetRatio] = useState(0.2);
+  const [currentRatio, setCurrentRatio] = useState(0.2);
+  const [hasInteracted, setHasInteracted] = useState(false);
+  
+  // Smooth the mouse movement
+  useEffect(() => {
+    let animationFrameId;
+    const updateRatio = () => {
+      setCurrentRatio((prev) => {
+        const diff = targetRatio - prev;
+        if (Math.abs(diff) < 0.001) return targetRatio;
+        return prev + diff * 0.08;
+      });
+      animationFrameId = requestAnimationFrame(updateRatio);
+    };
+    updateRatio();
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [targetRatio]);
+
+  const handleMouseMove = (e) => {
+    if (!hasInteracted) setHasInteracted(true);
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    setTargetRatio(Math.max(0, Math.min(1, x / rect.width)));
+  };
+
+  const handleTouchMove = (e) => {
+    if (!hasInteracted) setHasInteracted(true);
+    if (!containerRef.current || !e.touches[0]) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = e.touches[0].clientX - rect.left;
+    setTargetRatio(Math.max(0, Math.min(1, x / rect.width)));
+  };
+
+  // --- MATH & CATEGORY LOGIC ---
+  const minFreqLog = Math.log10(1);
+  const maxFreqLog = Math.log10(15000000);
+  const currentFreqLog = minFreqLog + currentRatio * (maxFreqLog - minFreqLog);
+  const actualFrequency = Math.pow(10, currentFreqLog);
+
+  const activeCategory = useMemo(() => {
+    if (actualFrequency < 20) return { id: 'infra', name: 'Infrasound', color: '239, 68, 68' }; 
+    if (actualFrequency < 20000) return { id: 'audible', name: 'Audible', color: '234, 179, 8' }; 
+    if (actualFrequency < 2000000) return { id: 'ultra', name: 'Ultrasound', color: '59, 130, 246' }; 
+    return { id: 'medical', name: 'Diagnostic Imaging', color: '16, 185, 129' }; 
+  }, [actualFrequency]);
+
+  // Determine specific source/target for the top right panel
+  const currentDetail = useMemo(() => {
+    const hz = actualFrequency;
+    // INFRASOUND
+    if (hz < 5) return { type: 'SOURCE', title: 'Earthquakes & Tectonics', icon: Activity, desc: 'Massive, global shockwaves' };
+    if (hz < 20) return { type: 'SOURCE', title: 'Elephants & Whales', icon: ElephantIcon, desc: 'Long-distance communication' };
+    
+    // AUDIBLE
+    if (hz < 80) return { type: 'SOURCE', title: 'Thunder & Heavy Bass', icon: CloudLightning, desc: 'Deep, vibrating resonance' };
+    if (hz < 1000) return { type: 'SOURCE', title: 'Human Speech', icon: Users, desc: 'Normal conversational range' };
+    if (hz < 5000) return { type: 'SOURCE', title: 'Instruments & Song', icon: Music, desc: 'Pianos, guitars, and brass' };
+    if (hz < 12000) return { type: 'SOURCE', title: 'Birdsong & Whistles', icon: Bird, desc: 'Sharp, high-pitched tones' };
+    if (hz < 20000) return { type: 'SOURCE', title: 'Mosquitoes', icon: Bug, desc: 'High whine at the edge of hearing' };
+    
+    // ULTRASOUND
+    if (hz < 80000) return { type: 'SOURCE', title: 'Bat Echolocation', icon: BatIcon, desc: 'Used for hunting in the dark' };
+    if (hz < 500000) return { type: 'SOURCE', title: 'Dolphins', icon: DolphinIcon, desc: 'High-speed underwater sonar' };
+    if (hz < 2000000) return { type: 'SOURCE', title: 'Industrial Testing', icon: Waves, desc: 'Finding flaws in solid metal' };
+    
+    // MEDICAL (Targets)
+    if (hz < 5000000) return { type: 'CLINICAL TARGET', title: 'Deep Abdomen (Liver/Aorta)', icon: LiverIcon, desc: 'Required: Max penetration (15-20cm)' };
+    if (hz < 9000000) return { type: 'CLINICAL TARGET', title: 'Obstetrics & Pediatrics', icon: Baby, desc: 'Balance: Res & Pen (8-12cm)' };
+    return { type: 'CLINICAL TARGET', title: 'Superficial (Thyroid/Breast)', icon: ThyroidIcon, desc: 'Required: Max resolution (1-4cm)' };
+  }, [actualFrequency]);
+
+  const formatHz = (hz) => {
+    if (hz < 1000) return `${Math.round(hz)} Hz`;
+    if (hz < 1000000) return `${(hz / 1000).toFixed(1)} kHz`;
+    return `${(hz / 1000000).toFixed(2)} MHz`;
+  };
+
+  // --- CANVAS RENDERING ENGINE ---
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let animationFrameId;
+    let time = 0;
+
+    const render = () => {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      if (canvas.width !== rect.width || canvas.height !== rect.height) {
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+      }
+      
+      const w = canvas.width;
+      const h = canvas.height;
+      
+      // Clinical Depth Setup
+      const surfaceY = 220; // Top of the tissue / Transducer face
+      const maxDepthCm = 24;
+      const availableHeight = h - surfaceY - 80; 
+      const pxPerCm = availableHeight / maxDepthCm;
+
+      // Clear canvas
+      ctx.fillStyle = `rgba(10, 15, 25, 1)`;
+      ctx.fillRect(0, 0, w, h);
+
+      // 1. Penetration Depth Logic
+      let penetrationCm = 24; 
+      if (actualFrequency > 20000 && actualFrequency <= 2000000) {
+        const p = (Math.log10(actualFrequency) - Math.log10(20000)) / (Math.log10(2000000) - Math.log10(20000));
+        penetrationCm = 24 - (p * 6);
+      } else if (actualFrequency > 2000000) {
+        const p = (Math.log10(actualFrequency) - Math.log10(2000000)) / (Math.log10(15000000) - Math.log10(2000000));
+        penetrationCm = 18 - (p * 15);
+      }
+
+      // --- DRAW THE SOUND WAVES ---
+      const amplitude = penetrationCm * pxPerCm; 
+      const visualFreq = 1 + (Math.pow(currentRatio, 2) * 200); 
+      const speed = 2 + (currentRatio * 15);
+      
+      time += 0.01 * speed;
+
+      let shakeY = 0;
+      if (currentRatio < 0.15) {
+        const shakeIntensity = (0.15 - currentRatio) * 8;
+        shakeY = (Math.random() - 0.5) * shakeIntensity;
+      }
+
+      ctx.save();
+      ctx.translate(0, shakeY);
+      
+      // Clip waves to start exactly at the transducer surface
+      ctx.beginPath();
+      ctx.rect(0, surfaceY, w, availableHeight + 100);
+      ctx.clip();
+
+      const numWaves = 3;
+      for (let j = 0; j < numWaves; j++) {
+        ctx.beginPath();
+        ctx.lineWidth = j === 0 ? 3 : 1.5;
+        const alpha = j === 0 ? 0.8 : 0.3; // Increased opacity slightly
+        ctx.strokeStyle = `rgba(${activeCategory.color}, ${alpha})`;
+        
+        ctx.shadowBlur = j === 0 ? 15 : 5;
+        ctx.shadowColor = `rgba(${activeCategory.color}, 0.8)`;
+
+        const phaseOffset = j * (Math.PI / 3);
+
+        for (let x = 0; x < w; x += 4) {
+          const normalizedX = x / w;
+          const envelopeX = Math.sin(normalizedX * Math.PI); // Fades waves at left/right edges
+          
+          const rawWave = Math.sin(normalizedX * visualFreq * Math.PI * 2 - time + phaseOffset);
+          const y = surfaceY + Math.abs(rawWave) * amplitude * envelopeX;
+          
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // --- DRAW DEPTH RULER (ON TOP OF WAVES) ---
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.font = '13px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth = 1;
+      
+      // Transducer Surface Line
+      ctx.beginPath();
+      ctx.moveTo(0, surfaceY);
+      ctx.lineTo(w, surfaceY);
+      ctx.stroke();
+      ctx.fillText("0 cm (Surface)", w * 0.08, surfaceY - 12);
+
+      // Depth ticks
+      for (let cm = 4; cm <= maxDepthCm; cm += 4) {
+        const y = surfaceY + (cm * pxPerCm);
+        ctx.beginPath();
+        ctx.moveTo(w * 0.05, y);
+        ctx.lineTo(w * 0.05 + 15, y);
+        ctx.stroke();
+        ctx.fillText(`${cm} cm`, w * 0.05 - 10, y);
+      }
+
+      // --- MAXIMUM PENETRATION LINE ---
+      // A glowing line that explicitly shows where the sound stops
+      const penY = surfaceY + (penetrationCm * pxPerCm);
+      ctx.beginPath();
+      ctx.setLineDash([5, 5]);
+      ctx.strokeStyle = `rgb(${activeCategory.color})`;
+      ctx.lineWidth = 2;
+      ctx.moveTo(w * 0.08, penY);
+      ctx.lineTo(w * 0.92, penY);
+      ctx.stroke();
+      
+      ctx.setLineDash([]);
+      ctx.fillStyle = `rgb(${activeCategory.color})`;
+      ctx.textAlign = 'left';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText(`MAX PENETRATION DEPTH`, w * 0.08 + 10, penY - 10);
+      
+      ctx.restore();
+
+      animationFrameId = requestAnimationFrame(render);
+    };
+
+    render();
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [currentRatio, activeCategory]);
+
+  return (
+    <div 
+      ref={containerRef}
+      className="relative w-full h-screen bg-[#0a0f19] overflow-hidden select-none font-sans cursor-crosshair touch-none"
+      onMouseMove={handleMouseMove}
+      onTouchMove={handleTouchMove}
+    >
+      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-0" />
+
+      {/* --- TOP LEFT: HEADER & FREQUENCY --- */}
+      <div className="absolute top-0 left-0 w-full md:w-1/2 p-6 md:p-10 pointer-events-none z-20 flex flex-col items-start bg-gradient-to-b from-[#0a0f19] to-transparent h-64">
+        <div className="flex items-center space-x-4">
+          <Activity className="w-6 h-6 text-slate-400" />
+          <h2 className="text-slate-400 text-xl uppercase tracking-widest font-semibold">Spectrum Explorer</h2>
+        </div>
+        
+        <div className="mt-2 flex flex-col items-start">
+          <div className="text-6xl md:text-8xl font-black tabular-nums tracking-tighter" style={{ color: `rgb(${activeCategory.color})`, textShadow: `0 0 40px rgba(${activeCategory.color}, 0.5)`}}>
+            {formatHz(actualFrequency)}
+          </div>
+          <div className="text-2xl md:text-4xl font-light text-slate-200 tracking-tight">
+            {activeCategory.name}
+          </div>
+        </div>
+      </div>
+
+      {/* --- TOP RIGHT: DYNAMIC SOURCE/TARGET PANEL --- */}
+      {/* Absolute positioned, cleanly separated from the canvas waves below */}
+      <div className="absolute top-6 right-6 md:top-10 md:right-10 pointer-events-none z-30">
+        <div 
+          // Use key to force re-animation when the title changes
+          key={currentDetail.title} 
+          className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl flex items-center space-x-5 animate-in slide-in-from-right-8 fade-in duration-500 w-[300px] md:w-[380px]"
+          style={{ boxShadow: `0 10px 40px -10px rgba(${activeCategory.color}, 0.3)` }}
+        >
+          {/* Icon Container with glowing ring */}
+          <div className="relative flex-shrink-0">
+            <div className="absolute inset-0 rounded-full animate-ping opacity-20" style={{ backgroundColor: `rgb(${activeCategory.color})` }} />
+            <div className="w-14 h-14 rounded-full flex items-center justify-center relative z-10" style={{ backgroundColor: `rgba(${activeCategory.color}, 0.15)`, color: `rgb(${activeCategory.color})` }}>
+              <currentDetail.icon className="w-7 h-7" />
+            </div>
+          </div>
+          
+          {/* Text Content */}
+          <div className="flex flex-col flex-1">
+            <span className="text-[10px] md:text-xs font-bold uppercase tracking-widest mb-1" style={{ color: `rgb(${activeCategory.color})` }}>
+              {currentDetail.type}
+            </span>
+            <h3 className="text-white font-bold text-lg leading-tight mb-1">
+              {currentDetail.title}
+            </h3>
+            <p className="text-slate-400 text-xs md:text-sm leading-snug">
+              {currentDetail.desc}
+            </p>
+          </div>
+        </div>
+      </div>
+
+
+      {/* --- BOTTOM UI LAYER --- */}
+      <div className="absolute bottom-0 left-0 w-full p-6 md:p-10 pointer-events-none z-20 bg-gradient-to-t from-[#0a0f19] via-[#0a0f19]/90 to-transparent">
+        
+        {/* Dynamic Category Context */}
+        <div className="mb-6 h-36 md:h-32 flex items-end">
+          {activeCategory.id === 'infra' && (
+             <div className="space-y-2 animate-in fade-in duration-500">
+               <h3 className="text-xl font-semibold text-white">Maximum Penetration</h3>
+               <p className="text-slate-300 text-base max-w-xl">Below 20 Hz. Notice the penetration line reaches the very bottom of the screen. Great for long distances, but terrible for detailed resolution.</p>
+             </div>
+          )}
+          {activeCategory.id === 'audible' && (
+             <div className="space-y-2 animate-in fade-in duration-500">
+               <h3 className="text-xl font-semibold text-white">Human Hearing Range</h3>
+               <p className="text-slate-300 text-base max-w-xl">20 Hz to 20 kHz. As frequency increases, the waves get tighter and penetration depth begins to shrink.</p>
+             </div>
+          )}
+          {activeCategory.id === 'ultra' && (
+             <div className="space-y-2 animate-in fade-in duration-500">
+               <h3 className="text-xl font-semibold text-white">Entering Ultrasound</h3>
+               <p className="text-slate-300 text-base max-w-xl">Above 20 kHz. Too rapid for human hearing. Animals use this because the tighter waves bounce off small objects (insects) better than low frequencies.</p>
+             </div>
+          )}
+          {activeCategory.id === 'medical' && (
+             <div className="space-y-2 animate-in fade-in duration-500 max-w-2xl bg-emerald-950/40 p-4 rounded-xl border border-emerald-500/30 backdrop-blur-sm">
+               <h3 className="text-xl font-semibold text-emerald-400">The SPI Trade-off</h3>
+               <p className="text-emerald-100/90 text-sm mt-1">
+                 Watch the dotted <strong className="text-white">Max Penetration</strong> line. As you approach 15 MHz, it moves up rapidly. High frequencies provide perfect detail for superficial organs, but simply cannot reach deep structures.
+               </p>
+             </div>
+          )}
+        </div>
+
+        {/* Interactive Timeline Bar */}
+        <div className="relative w-full h-12 flex items-center">
+          <div className="absolute w-full h-1.5 bg-slate-800 rounded-full overflow-hidden shadow-inner">
+            <div 
+              className="h-full transition-all duration-100 ease-out" 
+              style={{ width: `${currentRatio * 100}%`, backgroundColor: `rgb(${activeCategory.color})` }}
+            />
+          </div>
+          <div 
+            className="absolute w-5 h-10 -mt-5 rounded-full border-2 border-white bg-slate-900 shadow-[0_0_15px_rgba(255,255,255,0.4)] transition-all duration-75 flex items-center justify-center"
+            style={{ left: `calc(${currentRatio * 100}% - 10px)`, borderColor: `rgb(${activeCategory.color})` }}
+          >
+            <div className="w-1 h-4 bg-slate-400 rounded-full" />
+          </div>
+          <div className="absolute w-full flex justify-between top-5 text-xs font-bold text-slate-500 tracking-widest uppercase">
+            <span>1 Hz</span>
+            <span className="hidden md:inline">Audible (20 Hz)</span>
+            <span className="hidden md:inline">Ultrasound (20 kHz)</span>
+            <span>15 MHz</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Onboarding Overlay */}
+      <div className={`absolute inset-0 z-40 flex items-center justify-center bg-[#0a0f19]/80 backdrop-blur-sm transition-opacity duration-1000 pointer-events-none ${hasInteracted ? 'opacity-0' : 'opacity-100'}`}>
+        <div className="flex flex-col items-center animate-bounce">
+          <MousePointer2 className="w-10 h-10 text-white mb-4 drop-shadow-lg" />
+          <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight text-center px-4">Scrub to explore</h1>
+          <p className="text-slate-300 mt-3 text-lg font-light">Watch the targets in the top right</p>
+        </div>
+      </div>
+
+    </div>
+  );
+} 
