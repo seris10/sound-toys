@@ -15,4 +15,9 @@ Interactive audio experiments and visualizations. All client-side — no backend
 
 ## Run locally
 
-Open `index.html` in a browser. That's it.
+```bash
+git clone https://github.com/seris10/sound-toys.git
+open sound-toys/index.html
+```
+
+No build step, no dependencies — just static HTML files.
