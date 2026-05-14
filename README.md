@@ -11,7 +11,7 @@ Interactive audio experiments and visualizations. All client-side, no backend, n
 | **Resonance** | Interactive sound wave playground. Manipulate waveforms, frequencies, and harmonics in real time. |
 | **Acoustic Field Simulation** | 2D pressure wave and vector field visualization with Gaussian pulses |
 | **Sound Spectrum Explorer** | Browse how sounds are categorized across different spectra |
-| **Sound Wave Types** | Compare frequency ranges across biological systems, from elephants to bats |
+| **Sound Wave Types** | Compare frequency ranges across biological systems, from elephants to bats. Neither of which you can hear, because I broke this one. |
 
 ## Run locally
 
@@ -24,4 +24,7 @@ No build step, no dependencies. Just static HTML files.
 
 ## Known issues
 
-- **Resonance**: Audio may not play on mobile browsers due to autoplay restrictions. Tap the screen after loading to enable sound. Possibly.
+**Resonance**:
+- Audio may not play on mobile browsers due to autoplay restrictions. Tap the screen after loading to enable sound. Possibly.
+- There's a Parakeet mode loosely based on the frequencies and warble of parakeet chatter. Very loosely. I intend to improve on it, but as of now it's reception is somewhere betweeen concerned and confused, so take this as a disclaimer - this is not a toy for parakeets (yet).
+  
