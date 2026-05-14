@@ -24,4 +24,4 @@ No build step, no dependencies. Just static HTML files.
 
 ## Known issues
 
-- **Resonance**: Audio may not play on mobile browsers due to autoplay restrictions. Tap the screen after loading to enable sound.
+- **Resonance**: Audio may not play on mobile browsers due to autoplay restrictions. Tap the screen after loading to enable sound. Possibly.
