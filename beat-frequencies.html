@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Beat Frequencies</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0a0f19;
+    color: #e0e6f0;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .wrap {
+    height: 100vh;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  header h1 {
+    font-size: 1.8rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 4px;
+  }
+  header p {
+    color: #8a93a6;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    max-width: 720px;
+  }
+  .canvases {
+    flex: 1;
+    display: grid;
+    grid-template-rows: 1fr 1fr 1.4fr;
+    gap: 10px;
+    min-height: 0;
+  }
+  .scope {
+    position: relative;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .scope canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .scope .label {
+    position: absolute;
+    top: 8px;
+    left: 12px;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #707a8c;
+    font-weight: 600;
+  }
+  .scope .readout {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    font-size: 0.78rem;
+    color: #aab2c0;
+    font-variant-numeric: tabular-nums;
+  }
+  .scope.sum .label { color: #c0d0e8; }
+  .scope.sum {
+    border-color: rgba(88, 166, 255, 0.25);
+    background: rgba(88, 166, 255, 0.03);
+  }
+
+  .controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .control {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .control .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .control .row .name {
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+  .control .row .value {
+    font-size: 0.95rem;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  .control input[type="range"] {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    height: 26px;
+  }
+  .control input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+  }
+  .control input[type="range"]::-moz-range-track {
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+  }
+  .control input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-top: -6px;
+    cursor: pointer;
+    box-shadow: 0 0 8px var(--accent);
+  }
+  .control input[type="range"]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border: none;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    box-shadow: 0 0 8px var(--accent);
+  }
+  .control.a { --accent: #f59e0b; }
+  .control.b { --accent: #22d3ee; }
+
+  .bottom {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .play {
+    background: #58a6ff;
+    color: #0a0f19;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 22px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: filter 0.15s, background 0.15s;
+  }
+  .play.playing { background: #ef4444; }
+  .play:hover { filter: brightness(1.1); }
+  .play svg { width: 14px; height: 14px; }
+  .volume {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.85rem;
+    color: #8a93a6;
+  }
+  .volume input { width: 120px; }
+  .beat-readout {
+    margin-left: auto;
+    padding: 10px 16px;
+    background: rgba(88, 166, 255, 0.08);
+    border: 1px solid rgba(88, 166, 255, 0.25);
+    border-radius: 8px;
+    font-size: 0.85rem;
+  }
+  .beat-readout strong {
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+    font-size: 1rem;
+  }
+  .beat-readout .hint {
+    color: #aab2c0;
+    margin-left: 6px;
+  }
+
+  .preset {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #e0e6f0;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .preset:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 16px; gap: 12px; }
+    .controls { grid-template-columns: 1fr; }
+    .beat-readout { margin-left: 0; width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>Beat Frequencies</h1>
+    <p>
+      Two pure tones, side by side. Tune them close together &mdash; if their frequencies differ by
+      <em>f<sub>2</sub>&minus;f<sub>1</sub></em> hertz, the combined sound pulses that many times a
+      second. The wobble you hear is the same math the eye sees in the bottom scope.
+    </p>
+  </header>
+
+  <div class="canvases">
+    <div class="scope">
+      <span class="label">Oscillator A</span>
+      <span class="readout" id="readA">440 Hz</span>
+      <canvas id="scopeA"></canvas>
+    </div>
+    <div class="scope">
+      <span class="label">Oscillator B</span>
+      <span class="readout" id="readB">444 Hz</span>
+      <canvas id="scopeB"></canvas>
+    </div>
+    <div class="scope sum">
+      <span class="label">Sum &mdash; what you hear</span>
+      <canvas id="scopeSum"></canvas>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="control a">
+      <div class="row">
+        <span class="name">Oscillator A</span>
+        <span class="value" id="valA">440.0 Hz</span>
+      </div>
+      <input type="range" id="freqA" min="100" max="800" step="0.1" value="440">
+    </div>
+    <div class="control b">
+      <div class="row">
+        <span class="name">Oscillator B</span>
+        <span class="value" id="valB">444.0 Hz</span>
+      </div>
+      <input type="range" id="freqB" min="100" max="800" step="0.1" value="444">
+    </div>
+  </div>
+
+  <div class="bottom">
+    <button class="play" id="playBtn" type="button">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      <span id="playLabel">Play</span>
+    </button>
+    <div class="volume">
+      <span>Volume</span>
+      <input type="range" id="vol" min="0" max="100" step="1" value="35">
+    </div>
+    <button class="preset" data-fa="440" data-fb="441" type="button">Slow beat (1 Hz)</button>
+    <button class="preset" data-fa="440" data-fb="444" type="button">Fast beat (4 Hz)</button>
+    <button class="preset" data-fa="440" data-fb="660" type="button">Perfect fifth</button>
+    <button class="preset" data-fa="440" data-fb="440" type="button">Unison</button>
+    <div class="beat-readout">
+      Beat frequency: <strong id="beat">4.0 Hz</strong>
+      <span class="hint" id="beatHint"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---------- Audio ----------
+  let ctx = null, oscA, oscB, gainA, gainB, master;
+  let playing = false;
+
+  function ensure() {
+    if (ctx) return;
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    master = ctx.createGain();
+    master.gain.value = parseFloat(vol.value) / 100;
+    master.connect(ctx.destination);
+  }
+
+  function startTones() {
+    ensure();
+    if (ctx.state === 'suspended') ctx.resume();
+    oscA = ctx.createOscillator(); oscA.type = 'sine'; oscA.frequency.value = parseFloat(freqA.value);
+    oscB = ctx.createOscillator(); oscB.type = 'sine'; oscB.frequency.value = parseFloat(freqB.value);
+    gainA = ctx.createGain(); gainA.gain.value = 0.5;
+    gainB = ctx.createGain(); gainB.gain.value = 0.5;
+    oscA.connect(gainA).connect(master);
+    oscB.connect(gainB).connect(master);
+    oscA.start(); oscB.start();
+    playing = true;
+    playBtn.classList.add('playing');
+    playLabel.textContent = 'Stop';
+  }
+
+  function stopTones() {
+    if (!playing) return;
+    try { oscA.stop(); oscB.stop(); } catch (e) {}
+    oscA = oscB = null;
+    playing = false;
+    playBtn.classList.remove('playing');
+    playLabel.textContent = 'Play';
+  }
+
+  // ---------- DOM ----------
+  const freqA = document.getElementById('freqA');
+  const freqB = document.getElementById('freqB');
+  const valA = document.getElementById('valA');
+  const valB = document.getElementById('valB');
+  const readA = document.getElementById('readA');
+  const readB = document.getElementById('readB');
+  const beat = document.getElementById('beat');
+  const beatHint = document.getElementById('beatHint');
+  const vol = document.getElementById('vol');
+  const playBtn = document.getElementById('playBtn');
+  const playLabel = document.getElementById('playLabel');
+
+  function updateLabels() {
+    const fa = parseFloat(freqA.value);
+    const fb = parseFloat(freqB.value);
+    valA.textContent = fa.toFixed(1) + ' Hz';
+    valB.textContent = fb.toFixed(1) + ' Hz';
+    readA.textContent = fa.toFixed(1) + ' Hz';
+    readB.textContent = fb.toFixed(1) + ' Hz';
+    const d = Math.abs(fa - fb);
+    beat.textContent = d.toFixed(1) + ' Hz';
+    if (d < 0.5) beatHint.textContent = '— a slow swell, almost still';
+    else if (d < 8) beatHint.textContent = '— audible wobble';
+    else if (d < 20) beatHint.textContent = '— a rough, dissonant roughness';
+    else beatHint.textContent = '— two distinct tones';
+  }
+
+  function applyLive() {
+    if (oscA) oscA.frequency.setTargetAtTime(parseFloat(freqA.value), ctx.currentTime, 0.01);
+    if (oscB) oscB.frequency.setTargetAtTime(parseFloat(freqB.value), ctx.currentTime, 0.01);
+  }
+
+  freqA.addEventListener('input', () => { updateLabels(); applyLive(); });
+  freqB.addEventListener('input', () => { updateLabels(); applyLive(); });
+  vol.addEventListener('input', () => { if (master) master.gain.value = parseFloat(vol.value) / 100; });
+
+  playBtn.addEventListener('click', () => {
+    if (playing) stopTones();
+    else startTones();
+  });
+
+  document.querySelectorAll('.preset').forEach(b => {
+    b.addEventListener('click', () => {
+      freqA.value = b.dataset.fa;
+      freqB.value = b.dataset.fb;
+      updateLabels();
+      applyLive();
+    });
+  });
+
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stopTones(); });
+
+  // ---------- Scopes ----------
+  const scopes = ['scopeA', 'scopeB', 'scopeSum'].map(id => {
+    const c = document.getElementById(id);
+    return { canvas: c, ctx: c.getContext('2d') };
+  });
+
+  function resize() {
+    scopes.forEach(s => {
+      const r = s.canvas.parentElement.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      s.canvas.width = r.width * dpr;
+      s.canvas.height = r.height * dpr;
+      s.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      s._w = r.width; s._h = r.height;
+    });
+  }
+  window.addEventListener('resize', resize);
+
+  // Each scope shows ~1.5 seconds of waveform at the chosen frequencies,
+  // not at audio sample rate. This is a teaching visualization, decoupled
+  // from the actual synthesis path so it stays smooth even at high f.
+  function drawWave(s, fn, color) {
+    const { ctx: c, _w: w, _h: h } = s;
+    c.clearRect(0, 0, w, h);
+    // baseline
+    c.strokeStyle = 'rgba(255,255,255,0.06)';
+    c.lineWidth = 1;
+    c.beginPath(); c.moveTo(0, h/2); c.lineTo(w, h/2); c.stroke();
+
+    c.strokeStyle = color;
+    c.lineWidth = 1.5;
+    c.beginPath();
+    const N = w;
+    for (let i = 0; i < N; i++) {
+      const x = i;
+      const t = (i / N) * window._win;
+      const y = h/2 - fn(t) * (h * 0.4);
+      if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+    }
+    c.stroke();
+  }
+
+  function render() {
+    const fa = parseFloat(freqA.value);
+    const fb = parseFloat(freqB.value);
+    const d = Math.abs(fa - fb);
+    // Pick a window that fits two beat periods if there's a beat,
+    // otherwise a few cycles of the lower tone.
+    const win = d > 0.5 ? Math.min(4, 2 / d) : Math.max(0.01, 6 / Math.min(fa, fb));
+    window._win = win;
+    drawWave(scopes[0], t => Math.sin(2 * Math.PI * fa * t), '#f59e0b');
+    drawWave(scopes[1], t => Math.sin(2 * Math.PI * fb * t), '#22d3ee');
+    drawWave(scopes[2], t => 0.5 * (Math.sin(2 * Math.PI * fa * t) + Math.sin(2 * Math.PI * fb * t)), '#58a6ff');
+    requestAnimationFrame(render);
+  }
+
+  resize();
+  updateLabels();
+  render();
+</script>
+
+</body>
+</html>
