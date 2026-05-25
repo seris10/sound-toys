@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Theremin</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0a0f19;
+    color: #e0e6f0;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+  }
+
+  .stage {
+    position: fixed;
+    inset: 0;
+    cursor: crosshair;
+    background:
+      radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgba(88, 166, 255, 0.18), transparent 60%),
+      #0a0f19;
+    transition: background 0.05s;
+  }
+
+  /* Frequency grid lines */
+  .grid {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .grid line, .grid text {
+    fill: rgba(255,255,255,0.4);
+    font-family: inherit;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .grid line { stroke: rgba(255,255,255,0.08); stroke-width: 1; }
+  .grid line.snap { stroke: rgba(88,166,255,0.18); }
+
+  .pointer-glow {
+    position: absolute;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #fff 0%, rgba(88,166,255,0.6) 40%, transparent 70%);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    transition: transform 0.05s linear;
+    box-shadow: 0 0 32px rgba(88,166,255,0.7);
+  }
+
+  .panel {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    right: 16px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    z-index: 10;
+    pointer-events: none;
+  }
+  .panel > * { pointer-events: auto; }
+  .title {
+    font-weight: 700;
+    font-size: 1.1rem;
+    letter-spacing: -0.01em;
+  }
+  .readout {
+    background: rgba(10,15,25,0.7);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+    color: #aab2c0;
+  }
+  .readout strong { color: #fff; }
+  .scale-pick {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #e0e6f0;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .scale-pick:focus { outline: 1px solid rgba(88,166,255,0.5); }
+
+  .hint {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.85rem;
+    color: rgba(255,255,255,0.5);
+    text-align: center;
+    pointer-events: none;
+    z-index: 10;
+    transition: opacity 0.4s;
+  }
+  .hint.hidden { opacity: 0; }
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage">
+  <svg class="grid" id="grid" width="100%" height="100%" preserveAspectRatio="none"></svg>
+  <div class="pointer-glow" id="glow"></div>
+</div>
+
+<div class="panel">
+  <div class="title">Theremin</div>
+  <div class="readout"><strong id="hzOut">&mdash;</strong> &nbsp;<span id="noteOut">silent</span></div>
+  <select class="scale-pick" id="scalePick">
+    <option value="off">Continuous (no snap)</option>
+    <option value="chromatic">Chromatic</option>
+    <option value="major" selected>C major</option>
+    <option value="minor">C minor</option>
+    <option value="pent">Pentatonic</option>
+    <option value="bp">Bohlen&ndash;Pierce</option>
+  </select>
+</div>
+
+<div class="hint" id="hint">Move horizontally for pitch, vertically for volume. Release to stop.</div>
+
+<script>
+  const F_MIN = 110;   // A2
+  const F_MAX = 1760;  // A6
+  const logMin = Math.log2(F_MIN);
+  const logMax = Math.log2(F_MAX);
+
+  const stage = document.getElementById('stage');
+  const glow = document.getElementById('glow');
+  const grid = document.getElementById('grid');
+  const hzOut = document.getElementById('hzOut');
+  const noteOut = document.getElementById('noteOut');
+  const scalePick = document.getElementById('scalePick');
+  const hint = document.getElementById('hint');
+
+  // ---------- Audio ----------
+  let ctx = null, osc, gain;
+  function ensure() {
+    if (ctx) return;
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 440;
+    gain = ctx.createGain();
+    gain.gain.value = 0;
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+  }
+
+  function setFreq(hz) {
+    if (!ctx) return;
+    osc.frequency.setTargetAtTime(hz, ctx.currentTime, 0.01);
+  }
+  function setGain(v) {
+    if (!ctx) return;
+    gain.gain.setTargetAtTime(v, ctx.currentTime, 0.02);
+  }
+
+  // ---------- Scale snapping ----------
+  // Semitone intervals from C in each scale.
+  const SCALES = {
+    chromatic: [0,1,2,3,4,5,6,7,8,9,10,11],
+    major:     [0,2,4,5,7,9,11],
+    minor:     [0,2,3,5,7,8,10],
+    pent:      [0,2,4,7,9],
+  };
+
+  function snapFreq(hz, scale) {
+    if (scale === 'off') return hz;
+    if (scale === 'bp') {
+      // Bohlen-Pierce: 13 equal divisions of a tritave (3:1).
+      const ratio = hz / F_MIN;
+      const stepLog = Math.log(3) / 13;
+      const n = Math.round(Math.log(ratio) / stepLog);
+      return F_MIN * Math.exp(n * stepLog);
+    }
+    const set = SCALES[scale];
+    // Convert hz to semitones above C0 (16.351 Hz).
+    const C0 = 16.3516;
+    const semitones = 12 * Math.log2(hz / C0);
+    const octave = Math.floor(semitones / 12);
+    const pc = semitones - octave * 12;
+    // Find closest pitch class in set.
+    let best = set[0], bestDist = Infinity;
+    for (const s of set) {
+      const d = Math.min(Math.abs(s - pc), Math.abs(s + 12 - pc), Math.abs(s - 12 - pc));
+      if (d < bestDist) { best = s; bestDist = d; }
+    }
+    // If the closest match was via the next octave wrap, fix the octave.
+    let snapPc = best;
+    let snapOct = octave;
+    if (Math.abs(snapPc - pc) > 6) {
+      if (snapPc < pc) { snapPc += 12; }
+      else { snapPc -= 12; }
+    }
+    return C0 * Math.pow(2, (snapOct * 12 + snapPc) / 12);
+  }
+
+  // Name a frequency.
+  const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  function nameOf(hz) {
+    const C0 = 16.3516;
+    const semitones = Math.round(12 * Math.log2(hz / C0));
+    const octave = Math.floor(semitones / 12);
+    const pc = ((semitones % 12) + 12) % 12;
+    return `${NOTE_NAMES[pc]}${octave}`;
+  }
+
+  // ---------- Grid ----------
+  function drawGrid() {
+    grid.innerHTML = '';
+    const ns = 'http://www.w3.org/2000/svg';
+    const w = stage.clientWidth;
+    const h = stage.clientHeight;
+    const C0 = 16.3516;
+    const scale = scalePick.value;
+    const set = scale === 'off' ? null
+              : scale === 'bp' ? null
+              : SCALES[scale];
+
+    // Draw an octave divider every octave, plus a thin tick at every
+    // snap-pitch when a scale is selected.
+    for (let semi = Math.floor(12 * Math.log2(F_MIN / C0)); semi <= Math.ceil(12 * Math.log2(F_MAX / C0)); semi++) {
+      const hz = C0 * Math.pow(2, semi / 12);
+      const pos = (Math.log2(hz) - logMin) / (logMax - logMin);
+      if (pos < 0 || pos > 1) continue;
+      const x = pos * w;
+      const pc = ((semi % 12) + 12) % 12;
+      const isOctave = pc === 0;
+      const inScale = set ? set.includes(pc) : false;
+      if (!isOctave && !inScale) continue;
+      const line = document.createElementNS(ns, 'line');
+      line.setAttribute('x1', x); line.setAttribute('x2', x);
+      line.setAttribute('y1', 0); line.setAttribute('y2', h);
+      if (inScale && !isOctave) line.setAttribute('class', 'snap');
+      grid.appendChild(line);
+      if (isOctave) {
+        const t = document.createElementNS(ns, 'text');
+        t.setAttribute('x', x + 4);
+        t.setAttribute('y', h - 8);
+        t.textContent = nameOf(hz);
+        grid.appendChild(t);
+      }
+    }
+    if (scale === 'bp') {
+      // Just label tritaves of A2.
+      for (let n = 0; n < 4; n++) {
+        const hz = F_MIN * Math.pow(3, n);
+        const pos = (Math.log2(hz) - logMin) / (logMax - logMin);
+        if (pos < 0 || pos > 1) continue;
+        const x = pos * w;
+        const line = document.createElementNS(ns, 'line');
+        line.setAttribute('x1', x); line.setAttribute('x2', x);
+        line.setAttribute('y1', 0); line.setAttribute('y2', h);
+        grid.appendChild(line);
+      }
+    }
+  }
+
+  // ---------- Pointer handling ----------
+  let active = false;
+
+  function setFromPos(x, y) {
+    const rect = stage.getBoundingClientRect();
+    const rx = Math.max(0, Math.min(1, (x - rect.left) / rect.width));
+    const ry = Math.max(0, Math.min(1, (y - rect.top) / rect.height));
+    const rawHz = Math.pow(2, logMin + rx * (logMax - logMin));
+    const hz = snapFreq(rawHz, scalePick.value);
+    // Volume: top = loud, bottom = quiet, with a curve.
+    const vol = Math.pow(1 - ry, 1.7) * 0.4;
+    setFreq(hz);
+    setGain(vol);
+    glow.style.left = (rx * rect.width) + 'px';
+    glow.style.top = (ry * rect.height) + 'px';
+    stage.style.setProperty('--mx', (rx * 100) + '%');
+    stage.style.setProperty('--my', (ry * 100) + '%');
+    hzOut.textContent = hz.toFixed(1) + ' Hz';
+    noteOut.textContent = nameOf(hz);
+  }
+
+  stage.addEventListener('pointerdown', (e) => {
+    ensure();
+    if (ctx.state === 'suspended') ctx.resume();
+    active = true;
+    stage.setPointerCapture(e.pointerId);
+    setFromPos(e.clientX, e.clientY);
+    hint.classList.add('hidden');
+  });
+  stage.addEventListener('pointermove', (e) => {
+    if (!active) return;
+    setFromPos(e.clientX, e.clientY);
+  });
+  const release = () => { active = false; setGain(0); noteOut.textContent = 'silent'; };
+  stage.addEventListener('pointerup', release);
+  stage.addEventListener('pointercancel', release);
+  stage.addEventListener('pointerleave', release);
+
+  scalePick.addEventListener('change', drawGrid);
+  window.addEventListener('resize', drawGrid);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) release(); });
+
+  drawGrid();
+</script>
+
+</body>
+</html>
