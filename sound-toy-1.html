@@ -844,6 +844,45 @@
             adsrRef.current = adsr;
           }, [adsr]);
 
+          // Keyboard layout: standard soft-synth chromatic octave starting at C4.
+          // Z S X D C V G B H N J M , (white keys on the bottom row, black above)
+          useEffect(() => {
+            const keyMap = {
+              KeyZ: 261.63, KeyS: 277.18, KeyX: 293.66, KeyD: 311.13,
+              KeyC: 329.63, KeyV: 349.23, KeyG: 369.99, KeyB: 392.00,
+              KeyH: 415.30, KeyN: 440.00, KeyJ: 466.16, KeyM: 493.88,
+              Comma: 523.25,
+            };
+            const held = new Set();
+            const onDown = (e) => {
+              if (e.repeat) return;
+              const freq = keyMap[e.code];
+              if (!freq) return;
+              if (e.target && /input|textarea|select/i.test(e.target.tagName)) return;
+              e.preventDefault();
+              if (!hasStarted) { setHasStarted(true); initAudio(); }
+              held.add(e.code);
+              triggerNote(freq, 0.7);
+              setIsInteracting(true);
+              isInteractingRef.current = true;
+            };
+            const onUp = (e) => {
+              if (!keyMap[e.code]) return;
+              held.delete(e.code);
+              if (held.size === 0) {
+                triggerNote(targetFreqRef.current, 0);
+                setIsInteracting(false);
+                isInteractingRef.current = false;
+              }
+            };
+            window.addEventListener('keydown', onDown);
+            window.addEventListener('keyup', onUp);
+            return () => {
+              window.removeEventListener('keydown', onDown);
+              window.removeEventListener('keyup', onUp);
+            };
+          }, [hasStarted]);
+
           const triggerParakeetNote = (freq, amp, fmRate, fmDepth, amRate, amDepth) => {
             triggerNote(freq, amp);
 
@@ -2086,12 +2125,20 @@ for (let j = 0; j < 4; j++) {
 
                 {/* Initial State Overlay */}
                 {!hasStarted && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md pointer-events-none transition-opacity duration-700 z-10">
+                  <div
+                    className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md transition-opacity duration-700 z-10 cursor-pointer"
+                    onPointerDown={async (e) => {
+                      e.preventDefault();
+                      setHasStarted(true);
+                      try { await initAudio(); }
+                      catch (err) { console.error('[audio-diag] overlay initAudio FAILED:', err); }
+                    }}
+                  >
                     <div className="bg-cyan-500/20 p-6 rounded-full mb-8 animate-pulse border border-cyan-500/30">
                       <IconVolume size={48} className="text-cyan-400" />
                     </div>
-                    <h2 className="text-5xl md:text-6xl font-light tracking-tight text-white mb-4 text-center px-4">Shape the Resonance</h2>
-                    <p className="text-slate-400 text-xl md:text-2xl text-center px-4 max-w-lg leading-relaxed">Touch anywhere, drag across the screen, or select a melody to begin.</p>
+                    <h2 className="text-5xl md:text-6xl font-light tracking-tight text-white mb-4 text-center px-4">Tap to start</h2>
+                    <p className="text-slate-400 text-xl md:text-2xl text-center px-4 max-w-lg leading-relaxed">Then drag across the screen, pick a melody, or use your keyboard.</p>
                   </div>
                 )}
 
