@@ -11,7 +11,7 @@ Interactive audio experiments and visualizations. All client-side, no backend, n
 | **Resonance** | Interactive sound wave playground. Manipulate waveforms, frequencies, and harmonics in real time. |
 | **Acoustic Field Simulation** | 2D pressure wave and vector field visualization with Gaussian pulses |
 | **Sound Spectrum Explorer** | Browse how sounds are categorized across different spectra |
-| **Sound Wave Types** | Compare frequency ranges across biological systems, from elephants to bats. Neither of which you can hear, because I broke this one. |
+| **Sound Wave Types** | Compare the frequency ranges other species use to make and hear sound, from elephants to bats. Synthesized in-browser; sounds outside human hearing are pitched into it. |
 
 ## Run locally
 
