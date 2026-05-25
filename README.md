@@ -12,6 +12,7 @@ Interactive audio experiments and visualizations. All client-side, no backend, n
 | **Acoustic Field Simulation** | 2D pressure wave and vector field visualization with Gaussian pulses |
 | **Sound Spectrum Explorer** | Browse how sounds are categorized across different spectra |
 | **Sound Wave Types** | Compare the frequency ranges other species use to make and hear sound, from elephants to bats. Synthesized in-browser; sounds outside human hearing are pitched into it. |
+| **Beat Frequencies** | Two pure tones with adjustable frequencies. Tune them close to hear (and see) the beating envelope at f&#8322;&minus;f&#8321;. |
 
 ## Run locally
 
