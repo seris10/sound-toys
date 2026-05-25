@@ -26,7 +26,26 @@
         }
         button:hover { background: #1d4ed8; }
         button:active { background: #1e3a8a; } /* Click feedback */
+        button.audio-on { background: #16a34a; }
+        button.audio-on:hover { background: #15803d; }
         label { display: block; margin-top: 8px; }
+        .sound-section {
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255,255,255,0.12);
+            font-size: 12px;
+            color: #aab2c0;
+        }
+        .sound-section input[type=range] {
+            width: 100%;
+            margin-top: 4px;
+        }
+        .sound-section .hint {
+            margin-top: 8px;
+            font-size: 11px;
+            color: #707a8c;
+            line-height: 1.35;
+        }
     </style>
 </head>
 <body>
@@ -53,6 +72,18 @@
         </label>
         <button id="fireButton">Fire Pulse</button>
         <button id="pauseButton">Pause</button>
+
+        <div class="sound-section">
+            <button id="audioButton">Listen at probe</button>
+            <label>
+                Carrier: <span id="carrierLabel">220 Hz</span>
+                <input type="range" id="carrierSlider" min="80" max="880" step="1" value="220">
+            </label>
+            <div class="hint">
+                A sine carrier whose amplitude tracks the pressure at the yellow probe.
+                When a pulse passes through, you'll hear the swell.
+            </div>
+        </div>
     </div>
 
     <canvas id="simCanvas"></canvas>
@@ -565,6 +596,58 @@
             sim.sampleProbe = { x: sim.source.x + 220, y: sim.source.y };
         });
 
+        // --- Audio: probe pressure as amplitude modulator on a sine carrier ---
+        const audioState = {
+            ctx: null, osc: null, gain: null, on: false, carrierHz: 220,
+        };
+        const audioButton = document.getElementById('audioButton');
+        const carrierSlider = document.getElementById('carrierSlider');
+        const carrierLabel = document.getElementById('carrierLabel');
+
+        function startAudio() {
+            const Ctx = window.AudioContext || window.webkitAudioContext;
+            if (!Ctx) return false;
+            const c = new Ctx();
+            const osc = c.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.value = audioState.carrierHz;
+            const g = c.createGain();
+            g.gain.value = 0;
+            osc.connect(g).connect(c.destination);
+            osc.start();
+            audioState.ctx = c; audioState.osc = osc; audioState.gain = g;
+            audioState.on = true;
+            audioButton.classList.add('audio-on');
+            audioButton.textContent = 'Sound on';
+            return true;
+        }
+
+        function stopAudio() {
+            if (!audioState.ctx) return;
+            try {
+                audioState.gain.gain.cancelScheduledValues(audioState.ctx.currentTime);
+                audioState.gain.gain.linearRampToValueAtTime(0, audioState.ctx.currentTime + 0.05);
+                const c = audioState.ctx, o = audioState.osc;
+                setTimeout(() => { try { o.stop(); c.close(); } catch (e) {} }, 80);
+            } catch (e) {}
+            audioState.ctx = audioState.osc = audioState.gain = null;
+            audioState.on = false;
+            audioButton.classList.remove('audio-on');
+            audioButton.textContent = 'Listen at probe';
+        }
+
+        audioButton.addEventListener('click', () => {
+            if (audioState.on) stopAudio(); else startAudio();
+        });
+        carrierSlider.addEventListener('input', (e) => {
+            audioState.carrierHz = parseInt(e.target.value, 10);
+            carrierLabel.textContent = audioState.carrierHz + ' Hz';
+            if (audioState.osc) {
+                audioState.osc.frequency.setTargetAtTime(audioState.carrierHz, audioState.ctx.currentTime, 0.01);
+            }
+        });
+        document.addEventListener('visibilitychange', () => { if (document.hidden) stopAudio(); });
+
         let lastTime = 0;
         function animate(timestamp) {
             if (lastTime === 0) lastTime = timestamp;
@@ -575,6 +658,13 @@
                 sim.update(dt);
             }
             sim.render(ctx);
+
+            // Drive audio gain from the latest probe-pressure sample.
+            if (audioState.on && audioState.ctx) {
+                const recent = sim.samplePressureHistory[sim.samplePressureHistory.length - 1] || 0;
+                const target = Math.min(0.6, Math.abs(recent) * 0.6);
+                audioState.gain.gain.setTargetAtTime(target, audioState.ctx.currentTime, 0.015);
+            }
 
             requestAnimationFrame(animate);
         }
