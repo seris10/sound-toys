@@ -4,6 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sound Toys</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <meta name="description" content="Interactive audio experiments and visualizations. All client-side, no backend, no dependencies.">
+  <meta property="og:title" content="Sound Toys">
+  <meta property="og:description" content="Interactive audio experiments and visualizations.">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -227,6 +233,34 @@
       height: 100%;
       border: none;
     }
+
+    /* Loading spinner shown while iframe contents resolve */
+    .toy-loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0a0a0f;
+      transition: opacity 0.25s;
+      pointer-events: none;
+    }
+    .toy-loading.hidden { opacity: 0; }
+    .toy-loading .spinner {
+      width: 28px;
+      height: 28px;
+      border: 2px solid rgba(255,255,255,0.08);
+      border-top-color: #58a6ff;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      .toy-loading .spinner {
+        animation: none;
+        border-top-color: rgba(255,255,255,0.4);
+      }
+    }
   </style>
 </head>
 <body>
@@ -289,13 +323,23 @@
 
 <div class="toy-viewer" id="toyViewer">
   <iframe id="toyFrame" sandbox="allow-scripts allow-same-origin allow-popups"></iframe>
+  <div class="toy-loading hidden" id="toyLoading"><div class="spinner"></div></div>
 </div>
 
 <script>
   const indexContent = document.getElementById('indexContent');
   const toyViewer = document.getElementById('toyViewer');
   const toyFrame = document.getElementById('toyFrame');
+  const toyLoading = document.getElementById('toyLoading');
   const navLinks = document.querySelectorAll('[data-toy]');
+
+  function showLoading() { toyLoading.classList.remove('hidden'); }
+  function hideLoading() { toyLoading.classList.add('hidden'); }
+  toyFrame.addEventListener('load', () => {
+    // Only hide once a real toy has finished loading -- ignore the
+    // initial 'about:blank' load that fires on src=''.
+    if (toyFrame.src && !toyFrame.src.endsWith('about:blank')) hideLoading();
+  });
 
   function navigate(e, toy) {
     e.preventDefault();
@@ -310,11 +354,13 @@
       indexContent.style.display = '';
       toyViewer.classList.remove('active');
       toyFrame.src = '';
+      hideLoading();
       history.pushState({}, '', window.location.pathname);
     } else {
       // Show toy in iframe
       indexContent.style.display = 'none';
       toyViewer.classList.add('active');
+      showLoading();
       toyFrame.src = toy;
       history.pushState({ toy }, '', '#' + toy.replace('.html', ''));
     }
@@ -327,11 +373,13 @@
     if (toy) {
       indexContent.style.display = 'none';
       toyViewer.classList.add('active');
+      showLoading();
       toyFrame.src = toy;
     } else {
       indexContent.style.display = '';
       toyViewer.classList.remove('active');
       toyFrame.src = '';
+      hideLoading();
     }
   });
 
@@ -345,6 +393,7 @@
         navLinks.forEach(link => link.classList.toggle('active', link.dataset.toy === file));
         indexContent.style.display = 'none';
         toyViewer.classList.add('active');
+        showLoading();
         toyFrame.src = file;
       }
     }
