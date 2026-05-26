@@ -28,6 +28,7 @@ const pages = [
   'types-of-soundwaves-scrubber.html',
   'beat-frequencies.html',
   'theremin.html',
+  'karplus-strong.html',
 ];
 
 // The React-based toys load React + Babel from a CDN. In some sandboxed
