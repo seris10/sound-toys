@@ -30,6 +30,7 @@ const pages = [
   'theremin.html',
   'karplus-strong.html',
   'formants.html',
+  'doppler.html',
 ];
 
 // The React-based toys load React + Babel from a CDN. In some sandboxed
