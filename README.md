@@ -15,6 +15,7 @@ Interactive audio experiments and visualizations. All client-side, no backend, n
 | **Beat Frequencies** | Two pure tones with adjustable frequencies. Tune them close to hear (and see) the beating envelope at f&#8322;&minus;f&#8321;. |
 | **Theremin** | Pointer-driven sine wave. Left/right for pitch (log-mapped), up/down for volume. Optional scale snapping. |
 | **Karplus&ndash;Strong Strings** | Pluck a virtual string. Noise burst into a feedback delay loop &mdash; the simplest physical-modeling synth, audibly recognisable as a plucked string. |
+| **Vowel Formants** | Drag through the IPA vowel chart and hear a sawtooth become recognisable vowels as two bandpass formants track tongue position. |
 
 ## Run locally
 
