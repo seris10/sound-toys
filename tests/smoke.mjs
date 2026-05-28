@@ -32,6 +32,7 @@ const pages = [
   'formants.html',
   'doppler.html',
   'dashboard.html',
+  'studio.html',
 ];
 
 // The React-based toys load React + Babel from a CDN. In some sandboxed
