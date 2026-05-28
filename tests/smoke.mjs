@@ -31,6 +31,7 @@ const pages = [
   'karplus-strong.html',
   'formants.html',
   'doppler.html',
+  'dashboard.html',
 ];
 
 // The React-based toys load React + Babel from a CDN. In some sandboxed
