@@ -18,6 +18,7 @@ Interactive audio experiments and visualizations. All client-side, no backend, n
 | **Vowel Formants** | Drag through the IPA vowel chart and hear a sawtooth become recognisable vowels as two bandpass formants track tongue position. |
 | **Doppler** | Drag a moving sound source around a listener; wavefronts bunch up in front and stretch behind, and the perceived pitch follows the maths. |
 | **Resonant Dashboard** | An imagined student dashboard built as a sound toy: subject wheel, orbiting pods, photo drop, coin gauge &mdash; every element reacts to hover, click, drop, and time. |
+| **Studio** | Four-track loop sandbox. Bake drums / bass / pluck / pad patterns or record from your microphone, then layer them with live master FFT + waveform. |
 
 ## Run locally
 
