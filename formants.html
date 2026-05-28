@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vowel Formants</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0a0f19;
+    color: #e0e6f0;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+  }
+  .wrap {
+    height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    padding: 24px;
+    gap: 18px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  header h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 4px; }
+  header p { color: #8a93a6; font-size: 0.9rem; line-height: 1.5; max-width: 720px; }
+
+  .chart {
+    position: relative;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    overflow: hidden;
+    cursor: crosshair;
+  }
+  .axis-x, .axis-y {
+    position: absolute;
+    font-size: 0.7rem;
+    color: #707a8c;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    pointer-events: none;
+  }
+  .axis-x { bottom: 6px; left: 0; right: 0; text-align: center; }
+  .axis-y {
+    left: 8px;
+    top: 50%;
+    transform: rotate(-90deg);
+    transform-origin: left center;
+  }
+  .axis-tick {
+    position: absolute;
+    font-size: 0.65rem;
+    color: #5b6478;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+  .vowel-marker {
+    position: absolute;
+    width: 28px; height: 28px;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(88, 166, 255, 0.12);
+    border: 1px solid rgba(88, 166, 255, 0.35);
+    color: #c8d8ef;
+    font-weight: 700;
+    font-size: 0.85rem;
+    pointer-events: none;
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+  }
+  .vowel-marker.near {
+    background: rgba(88, 166, 255, 0.32);
+    color: #fff;
+    border-color: rgba(88, 166, 255, 0.7);
+    box-shadow: 0 0 14px rgba(88,166,255,0.4);
+  }
+  .cursor-dot {
+    position: absolute;
+    width: 22px; height: 22px;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: #fff;
+    pointer-events: none;
+    box-shadow: 0 0 14px rgba(255,255,255,0.7);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .cursor-dot.visible { opacity: 1; }
+
+  .readout-panel {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: rgba(10,15,25,0.7);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 0.78rem;
+    color: #aab2c0;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+  .readout-panel strong { color: #fff; }
+  .readout-panel .nearest { color: #58a6ff; font-weight: 700; margin-top: 4px; display: block; }
+
+  .controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .control {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 10px 14px;
+  }
+  .control .row { display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .control .name { font-weight: 600; font-size: 0.85rem; }
+  .control .value { font-size: 0.85rem; color: #58a6ff; font-variant-numeric: tabular-nums; }
+  .control input[type="range"] {
+    width: 100%;
+    -webkit-appearance: none; appearance: none;
+    background: transparent; height: 22px;
+  }
+  .control input[type="range"]::-webkit-slider-runnable-track,
+  .control input[type="range"]::-moz-range-track {
+    height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px;
+  }
+  .control input[type="range"]::-webkit-slider-thumb,
+  .control input[type="range"]::-moz-range-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 14px; height: 14px; border-radius: 50%; background: #58a6ff;
+    margin-top: -5px; cursor: pointer; border: none;
+  }
+  .control select {
+    width: 100%; background: rgba(255,255,255,0.06); color: #e0e6f0;
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;
+    padding: 6px 8px; font-size: 0.85rem; margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>Vowel Formants</h1>
+    <p>
+      Move the cursor through the vowel chart to hear how two resonant peaks &mdash; the first two
+      formants &mdash; turn a buzzing source into recognisable vowels. Hold to sustain. The corners
+      are the canonical English IPA vowels.
+    </p>
+  </header>
+
+  <div class="chart" id="chart">
+    <div class="axis-x">F2 &nbsp;&middot;&nbsp; tongue position (front &rarr; back)</div>
+    <div class="axis-y">F1 &nbsp;&middot;&nbsp; tongue height (close &harr; open)</div>
+    <div class="readout-panel">
+      F1 <strong id="f1Out">&mdash;</strong>&nbsp;Hz<br>
+      F2 <strong id="f2Out">&mdash;</strong>&nbsp;Hz<br>
+      <span class="nearest" id="nearestOut">tap and drag</span>
+    </div>
+    <div class="cursor-dot" id="cursor"></div>
+  </div>
+
+  <div class="controls">
+    <div class="control">
+      <div class="row"><span class="name">Voice</span></div>
+      <select id="voiceSel">
+        <option value="male" selected>Male (120 Hz)</option>
+        <option value="female">Female (210 Hz)</option>
+        <option value="child">Child (300 Hz)</option>
+        <option value="drone">Steady drone (80 Hz)</option>
+      </select>
+    </div>
+    <div class="control">
+      <div class="row">
+        <span class="name">Vibrato</span>
+        <span class="value" id="vibVal">0%</span>
+      </div>
+      <input type="range" id="vib" min="0" max="100" step="1" value="15">
+    </div>
+    <div class="control">
+      <div class="row">
+        <span class="name">Q (sharpness)</span>
+        <span class="value" id="qVal">10</span>
+      </div>
+      <input type="range" id="q" min="3" max="25" step="1" value="10">
+    </div>
+    <div class="control">
+      <div class="row">
+        <span class="name">Volume</span>
+        <span class="value" id="volVal">40%</span>
+      </div>
+      <input type="range" id="vol" min="0" max="100" step="1" value="40">
+    </div>
+  </div>
+</div>
+
+<script>
+  // Vowel chart axes:
+  //   F1: 250 Hz (top, closed mouth) ... 850 Hz (bottom, open)
+  //   F2: 700 Hz (right, back tongue) ... 2500 Hz (left, front tongue)
+  const F1_MIN = 250, F1_MAX = 850;
+  const F2_MIN = 700, F2_MAX = 2500;
+
+  // Each vowel: IPA symbol, F1, F2, F3 (Hz).
+  // Values are typical adult male reference values; we scale F3 with voice.
+  const VOWELS = [
+    { sym: 'i', word: 'beat',  f1: 270, f2: 2290, f3: 3010 },
+    { sym: 'ɪ', word: 'bit',   f1: 390, f2: 1990, f3: 2550 },
+    { sym: 'e', word: 'bait',  f1: 530, f2: 1840, f3: 2480 },
+    { sym: 'ɛ', word: 'bet',   f1: 530, f2: 1840, f3: 2480 },
+    { sym: 'æ', word: 'bat',   f1: 660, f2: 1720, f3: 2410 },
+    { sym: 'ɑ', word: 'bot',   f1: 730, f2: 1090, f3: 2440 },
+    { sym: 'ɔ', word: 'bought',f1: 570, f2: 840,  f3: 2410 },
+    { sym: 'o', word: 'boat',  f1: 450, f2: 850,  f3: 2350 },
+    { sym: 'u', word: 'boot',  f1: 300, f2: 870,  f3: 2240 },
+    { sym: 'ʌ', word: 'but',   f1: 640, f2: 1190, f3: 2390 },
+  ];
+
+  // ---------- DOM ----------
+  const chart = document.getElementById('chart');
+  const cursor = document.getElementById('cursor');
+  const f1Out = document.getElementById('f1Out');
+  const f2Out = document.getElementById('f2Out');
+  const nearestOut = document.getElementById('nearestOut');
+  const voiceSel = document.getElementById('voiceSel');
+  const vib = document.getElementById('vib');
+  const q = document.getElementById('q');
+  const vol = document.getElementById('vol');
+  const vibVal = document.getElementById('vibVal');
+  const qVal = document.getElementById('qVal');
+  const volVal = document.getElementById('volVal');
+
+  // ---------- Layout vowel markers ----------
+  function layoutVowels() {
+    // Remove old.
+    chart.querySelectorAll('.vowel-marker').forEach(el => el.remove());
+    const r = chart.getBoundingClientRect();
+    for (const v of VOWELS) {
+      const el = document.createElement('div');
+      el.className = 'vowel-marker';
+      el.textContent = v.sym;
+      el.title = v.word;
+      // F2 axis: F2_MAX on the left → F2_MIN on the right.
+      const x = (1 - (v.f2 - F2_MIN) / (F2_MAX - F2_MIN)) * r.width;
+      // F1 axis: F1_MIN at top → F1_MAX at bottom.
+      const y = ((v.f1 - F1_MIN) / (F1_MAX - F1_MIN)) * r.height;
+      el.style.left = x + 'px';
+      el.style.top = y + 'px';
+      el.dataset.sym = v.sym;
+      chart.appendChild(el);
+    }
+  }
+  window.addEventListener('resize', layoutVowels);
+
+  // ---------- Audio ----------
+  let ctx = null, src, srcGain, f1f, f2f, f3f, lfo, lfoGain, master;
+  let active = false;
+  function ensure() {
+    if (ctx) return;
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    master = ctx.createGain();
+    master.gain.value = parseFloat(vol.value) / 100;
+    master.connect(ctx.destination);
+
+    src = ctx.createOscillator();
+    src.type = 'sawtooth';
+    src.frequency.value = voiceFreq();
+    srcGain = ctx.createGain();
+    srcGain.gain.value = 1;
+
+    f1f = ctx.createBiquadFilter(); f1f.type = 'bandpass'; f1f.frequency.value = 500; f1f.Q.value = parseInt(q.value, 10);
+    f2f = ctx.createBiquadFilter(); f2f.type = 'bandpass'; f2f.frequency.value = 1500; f2f.Q.value = parseInt(q.value, 10);
+    f3f = ctx.createBiquadFilter(); f3f.type = 'bandpass'; f3f.frequency.value = 2500; f3f.Q.value = parseInt(q.value, 10);
+
+    // Three parallel formant filters, summed.
+    const sumGain = ctx.createGain();
+    src.connect(srcGain);
+    srcGain.connect(f1f); srcGain.connect(f2f); srcGain.connect(f3f);
+    f1f.connect(sumGain); f2f.connect(sumGain); f3f.connect(sumGain);
+
+    // Envelope gate so the voice silences when not actively dragging.
+    const env = ctx.createGain();
+    env.gain.value = 0;
+    sumGain.connect(env);
+    env.connect(master);
+    audioState.env = env;
+
+    // Vibrato LFO on the source frequency.
+    lfo = ctx.createOscillator();
+    lfo.frequency.value = 5;
+    lfoGain = ctx.createGain();
+    lfoGain.gain.value = 0;
+    lfo.connect(lfoGain).connect(src.frequency);
+
+    src.start();
+    lfo.start();
+  }
+
+  const audioState = { env: null };
+
+  function voiceFreq() {
+    return { male: 120, female: 210, child: 300, drone: 80 }[voiceSel.value] || 120;
+  }
+
+  function setActive(on) {
+    if (!ctx) return;
+    active = on;
+    const now = ctx.currentTime;
+    audioState.env.gain.cancelScheduledValues(now);
+    audioState.env.gain.linearRampToValueAtTime(on ? 0.7 : 0, now + 0.08);
+  }
+
+  function setFormants(f1, f2) {
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    f1f.frequency.setTargetAtTime(f1, now, 0.015);
+    f2f.frequency.setTargetAtTime(f2, now, 0.015);
+    // Scale F3 with the voice so the "speaker-size" cue is preserved.
+    const f3 = 2400 + (voiceFreq() - 120) * 4;
+    f3f.frequency.setTargetAtTime(f3, now, 0.015);
+  }
+
+  // ---------- Nearest vowel ----------
+  function nearestVowel(f1, f2) {
+    let best = null, bestDist = Infinity;
+    // Distance in log-frequency space so equal-perceptual distance dominates.
+    for (const v of VOWELS) {
+      const d = Math.pow(Math.log2(f1 / v.f1), 2) + Math.pow(Math.log2(f2 / v.f2), 2);
+      if (d < bestDist) { bestDist = d; best = v; }
+    }
+    return { v: best, dist: bestDist };
+  }
+  function updateNearestMarker(sym) {
+    chart.querySelectorAll('.vowel-marker').forEach(el => {
+      el.classList.toggle('near', el.dataset.sym === sym);
+    });
+  }
+
+  // ---------- Pointer ----------
+  function fromEvent(e) {
+    ensure();
+    if (ctx.state === 'suspended') ctx.resume();
+    const r = chart.getBoundingClientRect();
+    const x = Math.max(0, Math.min(r.width, e.clientX - r.left));
+    const y = Math.max(0, Math.min(r.height, e.clientY - r.top));
+    const f2 = F2_MAX - (x / r.width) * (F2_MAX - F2_MIN);
+    const f1 = F1_MIN + (y / r.height) * (F1_MAX - F1_MIN);
+    setFormants(f1, f2);
+    cursor.style.left = x + 'px';
+    cursor.style.top = y + 'px';
+    cursor.classList.add('visible');
+    f1Out.textContent = Math.round(f1);
+    f2Out.textContent = Math.round(f2);
+    const n = nearestVowel(f1, f2);
+    nearestOut.textContent = '/' + n.v.sym + '/  as in "' + n.v.word + '"';
+    updateNearestMarker(n.v.sym);
+  }
+
+  chart.addEventListener('pointerdown', (e) => {
+    chart.setPointerCapture(e.pointerId);
+    fromEvent(e);
+    setActive(true);
+  });
+  chart.addEventListener('pointermove', (e) => {
+    if (!active) return;
+    fromEvent(e);
+  });
+  const release = () => {
+    setActive(false);
+    cursor.classList.remove('visible');
+    updateNearestMarker(null);
+    nearestOut.textContent = 'release';
+  };
+  chart.addEventListener('pointerup', release);
+  chart.addEventListener('pointercancel', release);
+  chart.addEventListener('pointerleave', release);
+
+  // ---------- Controls ----------
+  voiceSel.addEventListener('change', () => {
+    if (ctx && src) src.frequency.setTargetAtTime(voiceFreq(), ctx.currentTime, 0.02);
+  });
+  vib.addEventListener('input', () => {
+    const pct = parseInt(vib.value, 10);
+    vibVal.textContent = pct + '%';
+    if (lfoGain) lfoGain.gain.setTargetAtTime((pct / 100) * 6, ctx.currentTime, 0.05);
+  });
+  q.addEventListener('input', () => {
+    qVal.textContent = q.value;
+    if (!ctx) return;
+    const v = parseInt(q.value, 10);
+    for (const f of [f1f, f2f, f3f]) f.Q.setTargetAtTime(v, ctx.currentTime, 0.02);
+  });
+  vol.addEventListener('input', () => {
+    volVal.textContent = vol.value + '%';
+    if (master) master.gain.value = parseFloat(vol.value) / 100;
+  });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) release(); });
+
+  layoutVowels();
+</script>
+
+</body>
+</html>
