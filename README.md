@@ -17,6 +17,7 @@ Interactive audio experiments and visualizations. All client-side, no backend, n
 | **Karplus&ndash;Strong Strings** | Pluck a virtual string. Noise burst into a feedback delay loop &mdash; the simplest physical-modeling synth, audibly recognisable as a plucked string. |
 | **Vowel Formants** | Drag through the IPA vowel chart and hear a sawtooth become recognisable vowels as two bandpass formants track tongue position. |
 | **Doppler** | Drag a moving sound source around a listener; wavefronts bunch up in front and stretch behind, and the perceived pitch follows the maths. |
+| **Resonant Dashboard** | An imagined student dashboard built as a sound toy: subject wheel, orbiting pods, photo drop, coin gauge &mdash; every element reacts to hover, click, drop, and time. |
 
 ## Run locally
 
