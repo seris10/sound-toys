@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Sound Spectrum Explorer</title>
-    
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
@@ -110,6 +111,10 @@
             const [targetRatio, setTargetRatio] = useState(0.2);
             const [currentRatio, setCurrentRatio] = useState(0.2);
             const [hasInteracted, setHasInteracted] = useState(false);
+            const [audioOn, setAudioOn] = useState(false);
+            const audioCtxRef = useRef(null);
+            const oscRef = useRef(null);
+            const gainRef = useRef(null);
             
             useEffect(() => {
                 let animationFrameId;
@@ -145,6 +150,58 @@
             const maxFreqLog = Math.log10(15000000);
             const currentFreqLog = minFreqLog + currentRatio * (maxFreqLog - minFreqLog);
             const actualFrequency = Math.pow(10, currentFreqLog);
+
+            // Pick a playback frequency inside a safe audible band by shifting
+            // the native frequency in octaves. Cap the upper end at ~6 kHz so
+            // a sweep into ultrasound doesn't blast a piercing tone.
+            const PLAY_LO = 60, PLAY_HI = 6000;
+            const playback = useMemo(() => {
+                let f = actualFrequency;
+                let octaves = 0;
+                while (f < PLAY_LO) { f *= 2; octaves += 1; }
+                while (f > PLAY_HI) { f /= 2; octaves -= 1; }
+                return { hz: f, octaves };
+            }, [actualFrequency]);
+
+            // Drive an oscillator when audio is on. Created lazily so we
+            // never start a context before user interaction.
+            useEffect(() => {
+                if (!audioOn) return;
+                const Ctx = window.AudioContext || window.webkitAudioContext;
+                if (!Ctx) return;
+                const ctx = new Ctx();
+                const osc = ctx.createOscillator();
+                osc.type = 'sine';
+                osc.frequency.value = playback.hz;
+                const g = ctx.createGain();
+                g.gain.value = 0;
+                osc.connect(g).connect(ctx.destination);
+                osc.start();
+                g.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.15);
+                audioCtxRef.current = ctx;
+                oscRef.current = osc;
+                gainRef.current = g;
+                return () => {
+                    try {
+                        g.gain.cancelScheduledValues(ctx.currentTime);
+                        g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.08);
+                        setTimeout(() => { try { osc.stop(); ctx.close(); } catch (e) {} }, 120);
+                    } catch (e) {}
+                    audioCtxRef.current = null;
+                    oscRef.current = null;
+                    gainRef.current = null;
+                };
+            }, [audioOn]);
+
+            useEffect(() => {
+                if (oscRef.current && audioCtxRef.current) {
+                    oscRef.current.frequency.setTargetAtTime(
+                        playback.hz, audioCtxRef.current.currentTime, 0.02
+                    );
+                }
+            }, [playback.hz]);
+
+            const toggleAudio = () => setAudioOn((v) => !v);
 
             const activeCategory = useMemo(() => {
                 if (actualFrequency < 20) return { id: 'infra', name: 'Infrasound', color: '239, 68, 68' }; 
@@ -314,6 +371,19 @@
                 >
                     <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-0" />
 
+                    <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); toggleAudio(); }}
+                        className={`absolute z-40 bottom-24 right-6 md:bottom-32 md:right-10 rounded-full px-4 py-2 text-xs md:text-sm font-semibold tracking-wide backdrop-blur-md border transition-all ${audioOn
+                            ? 'bg-white/15 border-white/30 text-white'
+                            : 'bg-slate-900/70 border-white/10 text-slate-300 hover:bg-slate-800/70'}`}
+                        style={{ pointerEvents: 'auto' }}
+                        aria-pressed={audioOn}
+                    >
+                        {audioOn ? 'Sound on' : 'Tap for sound'}
+                    </button>
+
+
                     <div className="absolute top-0 left-0 w-full md:w-1/2 p-6 md:p-10 pointer-events-none z-20 flex flex-col items-start bg-gradient-to-b from-[#0a0f19] to-transparent h-64">
                         <div className="flex items-center space-x-4">
                             <Activity className="w-6 h-6 text-slate-400" />
@@ -327,6 +397,14 @@
                             <div className="text-2xl md:text-4xl font-light text-slate-200 tracking-tight">
                                 {activeCategory.name}
                             </div>
+                            {audioOn && playback.octaves !== 0 && (
+                                <div className="mt-2 text-xs md:text-sm text-slate-400 font-mono">
+                                    heard at {formatHz(playback.hz)}
+                                    {playback.octaves > 0
+                                        ? ` (pitched up ${Math.pow(2, playback.octaves)}×)`
+                                        : ` (pitched down ${Math.pow(2, -playback.octaves)}×)`}
+                                </div>
+                            )}
                         </div>
                     </div>
 

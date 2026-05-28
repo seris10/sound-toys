@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Karplus&ndash;Strong Strings</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0a0f19;
+    color: #e0e6f0;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+  }
+
+  .wrap {
+    height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 16px;
+    padding: 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  header h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 4px; }
+  header p { color: #8a93a6; font-size: 0.9rem; line-height: 1.5; max-width: 720px; }
+
+  .stage {
+    position: relative;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  canvas { display: block; width: 100%; height: 100%; cursor: pointer; }
+  .stage-hint {
+    position: absolute;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.4);
+    pointer-events: none;
+    transition: opacity 0.4s;
+  }
+  .stage-hint.hidden { opacity: 0; }
+
+  .controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+  }
+  .control {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .control .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .control .row .name {
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+  .control .row .value {
+    font-size: 0.85rem;
+    color: #58a6ff;
+    font-variant-numeric: tabular-nums;
+  }
+  .control input[type="range"] {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    height: 22px;
+  }
+  .control input[type="range"]::-webkit-slider-runnable-track {
+    height: 3px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+  }
+  .control input[type="range"]::-moz-range-track {
+    height: 3px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+  }
+  .control input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #58a6ff;
+    margin-top: -5px;
+    cursor: pointer;
+  }
+  .control input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border: none;
+    border-radius: 50%;
+    background: #58a6ff;
+    cursor: pointer;
+  }
+  .control select {
+    width: 100%;
+    background: rgba(255,255,255,0.06);
+    color: #e0e6f0;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 0.85rem;
+    margin-top: 4px;
+  }
+  .control .hint {
+    margin-top: 6px;
+    font-size: 0.72rem;
+    color: #707a8c;
+    line-height: 1.4;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>Karplus&ndash;Strong Strings</h1>
+    <p>
+      The simplest physical-modeling synthesis there is: fill a delay line with noise, then
+      repeatedly average each sample with its neighbour. Each round of averaging is a low-pass
+      filter; the loop length sets the pitch. Tap a string anywhere to pluck it &mdash; closer to
+      the edge gives a brighter tone, like plucking near a guitar bridge.
+    </p>
+  </header>
+
+  <div class="stage">
+    <canvas id="cv"></canvas>
+    <div class="stage-hint" id="hint">Tap any string to pluck</div>
+  </div>
+
+  <div class="controls">
+    <div class="control">
+      <div class="row"><span class="name">Tuning</span></div>
+      <select id="tuningSel">
+        <option value="guitar">Standard guitar (E A D G B E)</option>
+        <option value="dadgad">DADGAD</option>
+        <option value="openD">Open D</option>
+        <option value="pent" selected>Pentatonic ladder</option>
+        <option value="koto">Koto (D minor)</option>
+      </select>
+    </div>
+    <div class="control">
+      <div class="row">
+        <span class="name">Brightness</span>
+        <span class="value" id="briVal">0.50</span>
+      </div>
+      <input type="range" id="bri" min="0" max="100" step="1" value="50">
+      <div class="hint">How aggressively each loop round averages. Lower = darker, mellower.</div>
+    </div>
+    <div class="control">
+      <div class="row">
+        <span class="name">Sustain</span>
+        <span class="value" id="susVal">0.996</span>
+      </div>
+      <input type="range" id="sus" min="900" max="999" step="1" value="996">
+      <div class="hint">Loop gain. Close to 1 = long sustain. Above 1 would feed back and explode.</div>
+    </div>
+    <div class="control">
+      <div class="row">
+        <span class="name">Volume</span>
+        <span class="value" id="volVal">35%</span>
+      </div>
+      <input type="range" id="vol" min="0" max="100" step="1" value="35">
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---------- Audio (lazy) ----------
+  let ctx = null, master = null;
+  function ensure() {
+    if (ctx) return;
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    master = ctx.createGain();
+    master.gain.value = parseFloat(vol.value) / 100;
+    master.connect(ctx.destination);
+  }
+
+  // Standard Karplus-Strong: fill a buffer of length N = sampleRate / freq
+  // with noise, then repeatedly set buffer[i] = 0.5 * (buffer[i] + buffer[i-1])
+  // (the low-pass), multiplied by a decay coefficient < 1.
+  //
+  // We pre-render into an AudioBuffer per pluck so each pluck plays cheaply.
+  function pluckBuffer(freqHz, durSec, brightness, sustain, pluckPos) {
+    ensure();
+    const sr = ctx.sampleRate;
+    const N = Math.max(2, Math.round(sr / freqHz));
+    const totalSamples = Math.floor(sr * durSec);
+    const buf = ctx.createBuffer(1, totalSamples, sr);
+    const out = buf.getChannelData(0);
+
+    // Excitation: a pluck shape with a noise component. pluckPos in (0,1]:
+    // small pluckPos = near the bridge = sharper noise = brighter spectrum.
+    const exc = new Float32Array(N);
+    const sharpness = 1 - Math.max(0.05, Math.min(0.95, pluckPos));
+    for (let i = 0; i < N; i++) {
+      const r = (i + 0.5) / N;
+      // A simple triangular pluck displacement, plus a touch of noise.
+      const tri = (r < 0.5 ? r * 2 : (1 - r) * 2);
+      const noiseAmt = 0.4 + sharpness * 0.6;
+      exc[i] = (tri - 0.5) * (1 - noiseAmt) + (Math.random() * 2 - 1) * noiseAmt;
+    }
+
+    // Blend factor for the lowpass step. brightness 0..1 -> blend 0.5..0.95
+    // (higher blend = more averaging = darker).
+    const blend = 0.5 + (1 - brightness) * 0.45;
+    const decay = sustain;
+
+    const ring = new Float32Array(N);
+    for (let i = 0; i < N; i++) ring[i] = exc[i];
+
+    let head = 0;
+    for (let i = 0; i < totalSamples; i++) {
+      out[i] = ring[head];
+      const next = (head + 1) % N;
+      const avg = blend * ring[head] + (1 - blend) * ring[next];
+      ring[head] = avg * decay;
+      head = next;
+    }
+
+    // Soft fade at the very end so we never get a click on buffer cutoff.
+    const fadeLen = Math.min(totalSamples, Math.floor(sr * 0.04));
+    for (let i = 0; i < fadeLen; i++) {
+      out[totalSamples - 1 - i] *= i / fadeLen;
+    }
+    return buf;
+  }
+
+  // ---------- Strings & tunings ----------
+  const TUNINGS = {
+    guitar: [82.41, 110.00, 146.83, 196.00, 246.94, 329.63],   // E2 A2 D3 G3 B3 E4
+    dadgad: [73.42, 110.00, 146.83, 196.00, 220.00, 293.66],   // D2 A2 D3 G3 A3 D4
+    openD:  [73.42, 110.00, 146.83, 185.00, 220.00, 293.66],   // D2 A2 D3 F#3 A3 D4
+    pent:   [220.00, 261.63, 329.63, 392.00, 440.00, 523.25],  // A C E G A C
+    koto:   [146.83, 220.00, 261.63, 293.66, 349.23, 440.00],  // D A C D F A
+  };
+  const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  function noteOf(hz) {
+    const C0 = 16.3516;
+    const s = Math.round(12 * Math.log2(hz / C0));
+    return NOTE_NAMES[((s % 12) + 12) % 12] + Math.floor(s / 12);
+  }
+
+  // ---------- DOM ----------
+  const cv = document.getElementById('cv');
+  const c2d = cv.getContext('2d');
+  const tuningSel = document.getElementById('tuningSel');
+  const bri = document.getElementById('bri');
+  const sus = document.getElementById('sus');
+  const vol = document.getElementById('vol');
+  const briVal = document.getElementById('briVal');
+  const susVal = document.getElementById('susVal');
+  const volVal = document.getElementById('volVal');
+  const hint = document.getElementById('hint');
+
+  let dpr = 1;
+  function resize() {
+    dpr = window.devicePixelRatio || 1;
+    const r = cv.getBoundingClientRect();
+    cv.width = r.width * dpr;
+    cv.height = r.height * dpr;
+    c2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+
+  // Each string keeps its current visual displacement amplitude + decay phase.
+  // We draw a damped standing-wave-looking curve for visual feedback.
+  const strings = [];
+  function rebuildStrings() {
+    const freqs = TUNINGS[tuningSel.value];
+    strings.length = 0;
+    for (let i = 0; i < freqs.length; i++) {
+      strings.push({
+        freq: freqs[i],
+        name: noteOf(freqs[i]),
+        amp: 0,           // current display amplitude
+        phase: Math.random() * Math.PI * 2,
+        decay: 0.992,     // visual decay (audio decay is separate via sustain)
+        modes: 1 + Math.floor(Math.random() * 2), // visual standing-wave modes
+      });
+    }
+  }
+  rebuildStrings();
+  tuningSel.addEventListener('change', rebuildStrings);
+
+  // Layout: strings as horizontal lines, evenly spaced, with the lowest at top
+  // (mirrors how guitar tabs are usually shown).
+  function stringY(i, h) {
+    const margin = 36;
+    const span = h - margin * 2;
+    return margin + (i / (strings.length - 1)) * span;
+  }
+
+  function pluckString(i, posX, w) {
+    ensure();
+    if (ctx.state === 'suspended') ctx.resume();
+    const s = strings[i];
+    const pluckPos = Math.max(0.05, Math.min(0.95, posX / w));
+    const brightness = parseFloat(bri.value) / 100;
+    const sustain = parseFloat(sus.value) / 1000;
+    const buf = pluckBuffer(s.freq, 4, brightness, sustain, pluckPos);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(master);
+    src.start();
+    s.amp = 1;
+    s.phase = 0;
+    s.modes = pluckPos < 0.2 ? 4 : pluckPos < 0.4 ? 3 : pluckPos < 0.7 ? 2 : 1;
+    s._pluckX = posX;
+    hint.classList.add('hidden');
+  }
+
+  // ---------- Interaction ----------
+  cv.addEventListener('pointerdown', (e) => {
+    const r = cv.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    // Find nearest string by y.
+    let best = 0, bestDy = Infinity;
+    for (let i = 0; i < strings.length; i++) {
+      const sy = stringY(i, r.height);
+      const dy = Math.abs(sy - y);
+      if (dy < bestDy) { bestDy = dy; best = i; }
+    }
+    if (bestDy < 40) pluckString(best, x, r.width);
+  });
+
+  // ---------- Render loop ----------
+  let t = 0;
+  function frame() {
+    t += 1 / 60;
+    const r = cv.getBoundingClientRect();
+    const w = r.width, h = r.height;
+    c2d.clearRect(0, 0, w, h);
+    // Background line for the sound hole-ish vibe.
+    const grd = c2d.createLinearGradient(0, 0, 0, h);
+    grd.addColorStop(0, 'rgba(88,166,255,0.04)');
+    grd.addColorStop(1, 'rgba(120,80,255,0.04)');
+    c2d.fillStyle = grd;
+    c2d.fillRect(0, 0, w, h);
+
+    for (let i = 0; i < strings.length; i++) {
+      const s = strings[i];
+      const sy = stringY(i, h);
+      // Note label on the left and right.
+      c2d.fillStyle = 'rgba(255,255,255,0.45)';
+      c2d.font = '11px sans-serif';
+      c2d.textBaseline = 'middle';
+      c2d.textAlign = 'right';
+      c2d.fillText(s.name, 28, sy);
+      c2d.textAlign = 'left';
+      c2d.fillText(Math.round(s.freq) + ' Hz', w - 60, sy);
+
+      // String itself: damped standing-wave envelope, fundamental + a couple modes.
+      const startX = 36, endX = w - 70;
+      const len = endX - startX;
+      const ampPx = s.amp * 14;
+      c2d.beginPath();
+      c2d.strokeStyle = `rgba(180, 220, 255, ${0.35 + s.amp * 0.55})`;
+      c2d.lineWidth = 1.4;
+      const M = s.modes;
+      for (let xi = 0; xi <= len; xi += 2) {
+        const u = xi / len;
+        const env = Math.sin(u * Math.PI);
+        const wave = Math.sin(u * Math.PI * M + s.phase) * env;
+        const y = sy + wave * ampPx;
+        if (xi === 0) c2d.moveTo(startX + xi, y); else c2d.lineTo(startX + xi, y);
+      }
+      c2d.stroke();
+
+      s.amp *= s.decay;
+      s.phase += 0.25;
+      if (s.amp < 0.001) s.amp = 0;
+    }
+
+    requestAnimationFrame(frame);
+  }
+  resize();
+  requestAnimationFrame(frame);
+
+  // ---------- Live readouts ----------
+  bri.addEventListener('input', () => { briVal.textContent = (parseFloat(bri.value) / 100).toFixed(2); });
+  sus.addEventListener('input', () => { susVal.textContent = (parseFloat(sus.value) / 1000).toFixed(3); });
+  vol.addEventListener('input', () => {
+    volVal.textContent = vol.value + '%';
+    if (master) master.gain.value = parseFloat(vol.value) / 100;
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && ctx) ctx.suspend();
+    else if (ctx) ctx.resume();
+  });
+</script>
+
+</body>
+</html>

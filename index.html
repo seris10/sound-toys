@@ -4,6 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sound Toys</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <meta name="description" content="Interactive audio experiments and visualizations. All client-side, no backend, no dependencies.">
+  <meta property="og:title" content="Sound Toys">
+  <meta property="og:description" content="Interactive audio experiments and visualizations.">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -227,6 +233,34 @@
       height: 100%;
       border: none;
     }
+
+    /* Loading spinner shown while iframe contents resolve */
+    .toy-loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0a0a0f;
+      transition: opacity 0.25s;
+      pointer-events: none;
+    }
+    .toy-loading.hidden { opacity: 0; }
+    .toy-loading .spinner {
+      width: 28px;
+      height: 28px;
+      border: 2px solid rgba(255,255,255,0.08);
+      border-top-color: #58a6ff;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      .toy-loading .spinner {
+        animation: none;
+        border-top-color: rgba(255,255,255,0.4);
+      }
+    }
   </style>
 </head>
 <body>
@@ -241,6 +275,13 @@
   <a href="#" class="nav-link" data-toy="acoustics-v7.html" onclick="navigate(event, 'acoustics-v7.html')">Acoustics</a>
   <a href="#" class="nav-link" data-toy="categories-of-sound.html" onclick="navigate(event, 'categories-of-sound.html')">Spectrum</a>
   <a href="#" class="nav-link" data-toy="types-of-soundwaves-scrubber.html" onclick="navigate(event, 'types-of-soundwaves-scrubber.html')">Wave Types</a>
+  <a href="#" class="nav-link" data-toy="beat-frequencies.html" onclick="navigate(event, 'beat-frequencies.html')">Beats</a>
+  <a href="#" class="nav-link" data-toy="theremin.html" onclick="navigate(event, 'theremin.html')">Theremin</a>
+  <a href="#" class="nav-link" data-toy="karplus-strong.html" onclick="navigate(event, 'karplus-strong.html')">Strings</a>
+  <a href="#" class="nav-link" data-toy="formants.html" onclick="navigate(event, 'formants.html')">Vowels</a>
+  <a href="#" class="nav-link" data-toy="doppler.html" onclick="navigate(event, 'doppler.html')">Doppler</a>
+  <a href="#" class="nav-link" data-toy="dashboard.html" onclick="navigate(event, 'dashboard.html')">Dashboard</a>
+  <a href="#" class="nav-link" data-toy="studio.html" onclick="navigate(event, 'studio.html')">Studio</a>
 </nav>
 
 <div class="index-content" id="indexContent">
@@ -274,21 +315,73 @@
 
     <a href="#" class="toy-card" onclick="navigate(event, 'types-of-soundwaves-scrubber.html')">
       <h3>Sound Wave Types</h3>
-      <p>Compare how different creatures and biological systems produce sound. Scrub through frequency ranges from elephants to bats.</p>
-      <span class="card-tag">React</span>
+      <p>Compare the frequency ranges other species use to make and hear sound. Tap any creature to hear a synthesized version &mdash; with anything outside human hearing pitched into it.</p>
+      <span class="card-tag">Audio</span>
+    </a>
+
+    <a href="#" class="toy-card" onclick="navigate(event, 'beat-frequencies.html')">
+      <h3>Beat Frequencies</h3>
+      <p>Two pure tones, tuned almost together. Hear and see the wobble that appears when frequencies are nearly equal &mdash; one of the cleanest examples of math you can listen to.</p>
+      <span class="card-tag">Audio</span>
+    </a>
+
+    <a href="#" class="toy-card" onclick="navigate(event, 'theremin.html')">
+      <h3>Theremin</h3>
+      <p>Pointer-driven sine: left/right is pitch, up/down is volume. Snap to a chromatic, major, minor, pentatonic, or Bohlen&ndash;Pierce scale.</p>
+      <span class="card-tag">Audio</span>
+    </a>
+
+    <a href="#" class="toy-card" onclick="navigate(event, 'karplus-strong.html')">
+      <h3>Karplus&ndash;Strong Strings</h3>
+      <p>Pluck a virtual string and hear the simplest physical-modeling synthesis there is: a noise burst sent round a feedback delay loop. Five tunings, brightness and sustain controls.</p>
+      <span class="card-tag">Audio</span>
+    </a>
+
+    <a href="#" class="toy-card" onclick="navigate(event, 'formants.html')">
+      <h3>Vowel Formants</h3>
+      <p>Drag through the IPA vowel chart and hear a buzzing sawtooth turn into recognisable vowels as two resonant peaks track tongue position and height.</p>
+      <span class="card-tag">Audio</span>
+    </a>
+
+    <a href="#" class="toy-card" onclick="navigate(event, 'doppler.html')">
+      <h3>Doppler</h3>
+      <p>Drag the speaker around the listener. Wavefronts bunch up in front and stretch out behind, and the pitch you hear follows. Auto-orbit gives a clean siren-passing-by sweep.</p>
+      <span class="card-tag">Audio</span>
+    </a>
+
+    <a href="#" class="toy-card" onclick="navigate(event, 'dashboard.html')">
+      <h3>Resonant Dashboard</h3>
+      <p>An imagined student dashboard where every element &mdash; subject wheel, pods, coins, photo drop &mdash; reacts visually and sonically. Hover to colour the page, click for a chord, drop a photo for a chime.</p>
+      <span class="card-tag">Audio</span>
+    </a>
+
+    <a href="#" class="toy-card" onclick="navigate(event, 'studio.html')">
+      <h3>Studio</h3>
+      <p>Four-track loop sandbox. Bake drums / bass / pluck / pad patterns into tracks, or record from your microphone, then layer them. Live master scope and FFT.</p>
+      <span class="card-tag">Audio</span>
     </a>
   </div>
 </div>
 
 <div class="toy-viewer" id="toyViewer">
   <iframe id="toyFrame" sandbox="allow-scripts allow-same-origin allow-popups"></iframe>
+  <div class="toy-loading hidden" id="toyLoading"><div class="spinner"></div></div>
 </div>
 
 <script>
   const indexContent = document.getElementById('indexContent');
   const toyViewer = document.getElementById('toyViewer');
   const toyFrame = document.getElementById('toyFrame');
+  const toyLoading = document.getElementById('toyLoading');
   const navLinks = document.querySelectorAll('[data-toy]');
+
+  function showLoading() { toyLoading.classList.remove('hidden'); }
+  function hideLoading() { toyLoading.classList.add('hidden'); }
+  toyFrame.addEventListener('load', () => {
+    // Only hide once a real toy has finished loading -- ignore the
+    // initial 'about:blank' load that fires on src=''.
+    if (toyFrame.src && !toyFrame.src.endsWith('about:blank')) hideLoading();
+  });
 
   function navigate(e, toy) {
     e.preventDefault();
@@ -303,11 +396,13 @@
       indexContent.style.display = '';
       toyViewer.classList.remove('active');
       toyFrame.src = '';
+      hideLoading();
       history.pushState({}, '', window.location.pathname);
     } else {
       // Show toy in iframe
       indexContent.style.display = 'none';
       toyViewer.classList.add('active');
+      showLoading();
       toyFrame.src = toy;
       history.pushState({ toy }, '', '#' + toy.replace('.html', ''));
     }
@@ -320,11 +415,13 @@
     if (toy) {
       indexContent.style.display = 'none';
       toyViewer.classList.add('active');
+      showLoading();
       toyFrame.src = toy;
     } else {
       indexContent.style.display = '';
       toyViewer.classList.remove('active');
       toyFrame.src = '';
+      hideLoading();
     }
   });
 
@@ -338,6 +435,7 @@
         navLinks.forEach(link => link.classList.toggle('active', link.dataset.toy === file));
         indexContent.style.display = 'none';
         toyViewer.classList.add('active');
+        showLoading();
         toyFrame.src = file;
       }
     }

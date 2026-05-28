@@ -11,7 +11,14 @@ Interactive audio experiments and visualizations. All client-side, no backend, n
 | **Resonance** | Interactive sound wave playground. Manipulate waveforms, frequencies, and harmonics in real time. |
 | **Acoustic Field Simulation** | 2D pressure wave and vector field visualization with Gaussian pulses |
 | **Sound Spectrum Explorer** | Browse how sounds are categorized across different spectra |
-| **Sound Wave Types** | Compare frequency ranges across biological systems, from elephants to bats. Neither of which you can hear, because I broke this one. |
+| **Sound Wave Types** | Compare the frequency ranges other species use to make and hear sound, from elephants to bats. Synthesized in-browser; sounds outside human hearing are pitched into it. |
+| **Beat Frequencies** | Two pure tones with adjustable frequencies. Tune them close to hear (and see) the beating envelope at f&#8322;&minus;f&#8321;. |
+| **Theremin** | Pointer-driven sine wave. Left/right for pitch (log-mapped), up/down for volume. Optional scale snapping. |
+| **Karplus&ndash;Strong Strings** | Pluck a virtual string. Noise burst into a feedback delay loop &mdash; the simplest physical-modeling synth, audibly recognisable as a plucked string. |
+| **Vowel Formants** | Drag through the IPA vowel chart and hear a sawtooth become recognisable vowels as two bandpass formants track tongue position. |
+| **Doppler** | Drag a moving sound source around a listener; wavefronts bunch up in front and stretch behind, and the perceived pitch follows the maths. |
+| **Resonant Dashboard** | An imagined student dashboard built as a sound toy: subject wheel, orbiting pods, photo drop, coin gauge &mdash; every element reacts to hover, click, drop, and time. |
+| **Studio** | Four-track loop sandbox. Bake drums / bass / pluck / pad patterns or record from your microphone, then layer them with live master FFT + waveform. |
 
 ## Run locally
 

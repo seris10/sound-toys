@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Doppler</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0a0f19;
+    color: #e0e6f0;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+  }
+  .wrap {
+    height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 14px;
+    padding: 20px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  header h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 4px; }
+  header p { color: #8a93a6; font-size: 0.88rem; line-height: 1.5; max-width: 720px; }
+
+  .stage {
+    position: relative;
+    background: radial-gradient(ellipse at center, rgba(88,166,255,0.06), transparent 70%), #0a0f19;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    overflow: hidden;
+    cursor: grab;
+  }
+  .stage:active { cursor: grabbing; }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  .readout-panel {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    background: rgba(10,15,25,0.75);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 0.78rem;
+    color: #aab2c0;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+  .readout-panel strong { color: #fff; }
+  .readout-panel .heard { color: #58a6ff; font-weight: 700; }
+
+  .hint {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.4);
+    pointer-events: none;
+    transition: opacity 0.4s;
+  }
+  .hint.hidden { opacity: 0; }
+
+  .controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+  }
+  .control {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 10px 14px;
+  }
+  .control .row { display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .control .name { font-weight: 600; font-size: 0.85rem; }
+  .control .value { font-size: 0.85rem; color: #58a6ff; font-variant-numeric: tabular-nums; }
+  .control input[type="range"] {
+    width: 100%;
+    -webkit-appearance: none; appearance: none;
+    background: transparent; height: 22px;
+  }
+  .control input[type="range"]::-webkit-slider-runnable-track,
+  .control input[type="range"]::-moz-range-track {
+    height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px;
+  }
+  .control input[type="range"]::-webkit-slider-thumb,
+  .control input[type="range"]::-moz-range-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 14px; height: 14px; border-radius: 50%; background: #58a6ff;
+    margin-top: -5px; cursor: pointer; border: none;
+  }
+  .control button {
+    width: 100%;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #e0e6f0;
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  .control button:hover { background: rgba(255,255,255,0.12); }
+  .control button.on { background: rgba(88,166,255,0.2); border-color: rgba(88,166,255,0.5); color: #fff; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>Doppler</h1>
+    <p>
+      Drag the speaker around the listener (the ear in the centre). Wavefronts bunch up in front
+      of the speaker and stretch out behind &mdash; the perceived pitch in your ears follows the
+      same maths. Try "Auto&nbsp;orbit" for a clean siren-passing-by sweep.
+    </p>
+  </header>
+
+  <div class="stage" id="stage">
+    <canvas id="cv"></canvas>
+    <div class="readout-panel">
+      Source <strong id="srcOut">440</strong>&nbsp;Hz<br>
+      Heard <span class="heard" id="heardOut">440</span>&nbsp;Hz<br>
+      v<sub>radial</sub> <strong id="vrOut">0</strong>&nbsp;m/s
+    </div>
+    <div class="hint" id="hint">Drag the speaker</div>
+  </div>
+
+  <div class="controls">
+    <div class="control">
+      <div class="row">
+        <span class="name">Source freq</span>
+        <span class="value" id="srcFreqVal">440 Hz</span>
+      </div>
+      <input type="range" id="srcFreq" min="80" max="1200" step="1" value="440">
+    </div>
+    <div class="control">
+      <div class="row">
+        <span class="name">Sound speed</span>
+        <span class="value" id="cVal">200 m/s</span>
+      </div>
+      <input type="range" id="cSlider" min="80" max="343" step="1" value="200">
+    </div>
+    <div class="control">
+      <div class="row">
+        <span class="name">Volume</span>
+        <span class="value" id="volVal">35%</span>
+      </div>
+      <input type="range" id="vol" min="0" max="100" step="1" value="35">
+    </div>
+    <div class="control">
+      <div class="row"><span class="name">Mode</span></div>
+      <button id="orbitBtn" type="button">Auto orbit</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---------- DOM ----------
+  const stage = document.getElementById('stage');
+  const cv = document.getElementById('cv');
+  const c2d = cv.getContext('2d');
+  const srcOut = document.getElementById('srcOut');
+  const heardOut = document.getElementById('heardOut');
+  const vrOut = document.getElementById('vrOut');
+  const srcFreq = document.getElementById('srcFreq');
+  const cSlider = document.getElementById('cSlider');
+  const vol = document.getElementById('vol');
+  const srcFreqVal = document.getElementById('srcFreqVal');
+  const cVal = document.getElementById('cVal');
+  const volVal = document.getElementById('volVal');
+  const orbitBtn = document.getElementById('orbitBtn');
+  const hint = document.getElementById('hint');
+
+  // ---------- State ----------
+  // World coordinates: 1 px == 1 m for simplicity.
+  let listener = { x: 0, y: 0 };
+  let source = { x: 0, y: 0, vx: 0, vy: 0 };
+  let dragging = false;
+  let lastMoveT = 0;
+  let lastMovePos = { x: 0, y: 0 };
+  let orbit = false;
+  let orbitAngle = 0;
+  let orbitRadius = 220;
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const r = cv.getBoundingClientRect();
+    cv.width = r.width * dpr;
+    cv.height = r.height * dpr;
+    c2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+    listener = { x: r.width / 2, y: r.height / 2 };
+    if (source.x === 0 && source.y === 0) {
+      source.x = listener.x + 200;
+      source.y = listener.y;
+    }
+    orbitRadius = Math.min(r.width, r.height) * 0.35;
+  }
+  window.addEventListener('resize', resize);
+
+  // ---------- Wavefronts ----------
+  // Each wavefront: { x, y, t0 } emitted at position when the source passed
+  // through it, expanding at sound speed c.
+  const fronts = [];
+  let lastEmit = -1;
+
+  function emitFront(now, soundSpeed) {
+    const period = 1 / Math.max(20, parseFloat(srcFreq.value));
+    if (now - lastEmit >= period) {
+      fronts.push({ x: source.x, y: source.y, t0: now });
+      lastEmit = now;
+      // Cull old.
+      while (fronts.length > 200) fronts.shift();
+    }
+  }
+
+  // ---------- Audio ----------
+  let actx = null, osc, gain;
+  function ensureAudio() {
+    if (actx) return;
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    osc = actx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = parseFloat(srcFreq.value);
+    gain = actx.createGain();
+    gain.gain.value = 0;
+    osc.connect(gain).connect(actx.destination);
+    osc.start();
+    gain.gain.linearRampToValueAtTime(parseFloat(vol.value) / 100 * 0.5, actx.currentTime + 0.15);
+  }
+
+  function applyHeard(hz) {
+    if (!actx) return;
+    osc.frequency.setTargetAtTime(hz, actx.currentTime, 0.02);
+  }
+
+  // ---------- Interaction ----------
+  stage.addEventListener('pointerdown', (e) => {
+    ensureAudio();
+    if (actx.state === 'suspended') actx.resume();
+    const r = cv.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    // Only start dragging if close to the source icon (allow clicking anywhere
+    // on the field to "snap" the source).
+    source.x = x; source.y = y;
+    source.vx = 0; source.vy = 0;
+    lastMovePos = { x, y };
+    lastMoveT = performance.now() / 1000;
+    dragging = true;
+    orbit = false;
+    orbitBtn.classList.remove('on');
+    stage.setPointerCapture(e.pointerId);
+    hint.classList.add('hidden');
+  });
+  stage.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const r = cv.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    const now = performance.now() / 1000;
+    const dt = Math.max(1e-3, now - lastMoveT);
+    source.vx = (x - lastMovePos.x) / dt;
+    source.vy = (y - lastMovePos.y) / dt;
+    source.x = x; source.y = y;
+    lastMovePos = { x, y };
+    lastMoveT = now;
+  });
+  const stopDrag = () => {
+    dragging = false;
+    source.vx *= 0.4;
+    source.vy *= 0.4;
+  };
+  stage.addEventListener('pointerup', stopDrag);
+  stage.addEventListener('pointercancel', stopDrag);
+
+  orbitBtn.addEventListener('click', () => {
+    ensureAudio();
+    if (actx.state === 'suspended') actx.resume();
+    orbit = !orbit;
+    orbitBtn.classList.toggle('on', orbit);
+    if (orbit) {
+      orbitAngle = Math.atan2(source.y - listener.y, source.x - listener.x);
+      hint.classList.add('hidden');
+    }
+  });
+
+  // ---------- Frame loop ----------
+  let lastT = performance.now() / 1000;
+  function frame() {
+    const now = performance.now() / 1000;
+    const dt = Math.min(0.05, now - lastT);
+    lastT = now;
+    const soundSpeed = parseFloat(cSlider.value);
+
+    if (orbit) {
+      // Move source on a circle, computing velocity from position delta.
+      orbitAngle += dt * 1.2;
+      const newX = listener.x + Math.cos(orbitAngle) * orbitRadius;
+      const newY = listener.y + Math.sin(orbitAngle) * orbitRadius;
+      source.vx = (newX - source.x) / dt;
+      source.vy = (newY - source.y) / dt;
+      source.x = newX; source.y = newY;
+    } else if (!dragging) {
+      // Friction so released sources coast then settle.
+      source.x += source.vx * dt;
+      source.y += source.vy * dt;
+      source.vx *= Math.exp(-2 * dt);
+      source.vy *= Math.exp(-2 * dt);
+    }
+
+    emitFront(now, soundSpeed);
+
+    // Compute Doppler-shifted heard frequency.
+    const dx = listener.x - source.x;
+    const dy = listener.y - source.y;
+    const dist = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+    // Radial velocity of the source toward the listener (positive = approaching).
+    const vRadial = (source.vx * dx + source.vy * dy) / dist;
+    const f0 = parseFloat(srcFreq.value);
+    // Stationary listener: f' = f0 * c / (c - v_source_toward_listener).
+    // Clamp to keep things sane if the user flings the source absurdly fast.
+    const denom = Math.max(soundSpeed * 0.05, soundSpeed - vRadial);
+    const heard = f0 * soundSpeed / denom;
+    applyHeard(heard);
+
+    srcOut.textContent = Math.round(f0);
+    heardOut.textContent = Math.round(heard);
+    vrOut.textContent = vRadial.toFixed(0);
+
+    // ---------- Render ----------
+    const r = cv.getBoundingClientRect();
+    const w = r.width, h = r.height;
+    c2d.clearRect(0, 0, w, h);
+
+    // Wavefronts.
+    for (const f of fronts) {
+      const age = now - f.t0;
+      const radius = age * soundSpeed;
+      if (radius > Math.hypot(w, h)) continue;
+      const alpha = Math.max(0, 1 - age / 6);
+      c2d.beginPath();
+      c2d.arc(f.x, f.y, radius, 0, Math.PI * 2);
+      c2d.strokeStyle = `rgba(88, 166, 255, ${alpha * 0.5})`;
+      c2d.lineWidth = 1;
+      c2d.stroke();
+    }
+
+    // Listener (ear glyph).
+    c2d.fillStyle = '#fff';
+    c2d.beginPath();
+    c2d.arc(listener.x, listener.y, 12, 0, Math.PI * 2);
+    c2d.fill();
+    c2d.fillStyle = '#0a0f19';
+    c2d.font = 'bold 14px sans-serif';
+    c2d.textAlign = 'center';
+    c2d.textBaseline = 'middle';
+    c2d.fillText('L', listener.x, listener.y);
+
+    // Source (with velocity arrow).
+    const speed = Math.hypot(source.vx, source.vy);
+    c2d.beginPath();
+    c2d.arc(source.x, source.y, 14, 0, Math.PI * 2);
+    c2d.fillStyle = '#58a6ff';
+    c2d.fill();
+    c2d.fillStyle = '#0a0f19';
+    c2d.font = 'bold 14px sans-serif';
+    c2d.fillText('S', source.x, source.y);
+    if (speed > 5) {
+      const len = Math.min(80, speed * 0.15);
+      const angle = Math.atan2(source.vy, source.vx);
+      c2d.strokeStyle = 'rgba(255,255,255,0.6)';
+      c2d.lineWidth = 2;
+      c2d.beginPath();
+      c2d.moveTo(source.x, source.y);
+      c2d.lineTo(source.x + Math.cos(angle) * len, source.y + Math.sin(angle) * len);
+      c2d.stroke();
+    }
+
+    requestAnimationFrame(frame);
+  }
+  resize();
+  requestAnimationFrame(frame);
+
+  // ---------- Controls ----------
+  srcFreq.addEventListener('input', () => { srcFreqVal.textContent = srcFreq.value + ' Hz'; });
+  cSlider.addEventListener('input', () => { cVal.textContent = cSlider.value + ' m/s'; });
+  vol.addEventListener('input', () => {
+    volVal.textContent = vol.value + '%';
+    if (gain) gain.gain.setTargetAtTime(parseFloat(vol.value) / 100 * 0.5, actx.currentTime, 0.05);
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && gain) gain.gain.setTargetAtTime(0, actx.currentTime, 0.05);
+    else if (gain) gain.gain.setTargetAtTime(parseFloat(vol.value) / 100 * 0.5, actx.currentTime, 0.05);
+  });
+</script>
+
+</body>
+</html>
