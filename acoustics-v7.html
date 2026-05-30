@@ -17,6 +17,17 @@
             background: rgba(0, 0, 0, 0.7); padding: 15px;
             border-radius: 8px; color: white;
             border: 1px solid #333;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            max-width: min(280px, calc(100vw - 40px));
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+        #ui h3 { margin: 0 0 4px; font-size: 15px; }
+        @media (max-width: 560px) {
+            #ui { top: 10px; left: 10px; padding: 11px; font-size: 12px; }
+            #ui h3 { font-size: 13px; }
+            button { padding: 6px 12px; font-size: 13px; }
         }
         button {
             background: #2563eb; color: white; border: none;
@@ -73,6 +84,15 @@
         <button id="fireButton">Fire Pulse</button>
         <button id="pauseButton">Pause</button>
 
+        <label>
+            Wavelength: <span id="wavelengthLabel">120 px</span>
+            <input type="range" id="wavelengthSlider" min="50" max="240" step="2" value="120">
+        </label>
+        <label>
+            Amplitude: <span id="amplitudeLabel">18</span>
+            <input type="range" id="amplitudeSlider" min="4" max="40" step="1" value="18">
+        </label>
+
         <div class="sound-section">
             <button id="audioButton">Listen at probe</button>
             <label>
@@ -80,8 +100,13 @@
                 <input type="range" id="carrierSlider" min="80" max="880" step="1" value="220">
             </label>
             <div class="hint">
-                A sine carrier whose amplitude tracks the pressure at the yellow probe.
-                When a pulse passes through, you'll hear the swell.
+                A sine carrier whose amplitude tracks the pressure at the coloured probe.
+                When a pulse passes through, you'll hear the swell. The carrier's pitch also
+                tints the probe and its trace.
+            </div>
+            <div class="hint" style="margin-top:6px;color:#8fb3d4;">
+                Drag the <b>source</b> (centre) or the <b>probe</b> to move them.
+                Click empty space to ripple a pulse from there.
             </div>
         </div>
     </div>
@@ -89,6 +114,26 @@
     <canvas id="simCanvas"></canvas>
 
     <script>
+        // ── Sound -> colour helpers ─────────────────────────────────────
+        // Carrier pitch -> colour, matching the flagship "Resonance" toy.
+        const ANCHOR = 65.41;
+        function pitchColor(freq, amp = 1, alpha = 1) {
+            const octavePos = Math.log2(Math.max(1e-6, freq) / ANCHOR);
+            const hue = ((octavePos % 1) * 360 + 360) % 360;
+            const octave = Math.max(0, Math.min(5, octavePos));
+            const sat = Math.min(100, 55 + octave * 6 + amp * 25);
+            const light = 38 + amp * 24;
+            return alpha >= 1 ? `hsl(${hue}, ${sat}%, ${light}%)` : `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`;
+        }
+        // Diverging pressure colormap: compression warm, rarefaction cool.
+        function pressureColor(p, alpha = 1) {
+            const t = Math.max(-1, Math.min(1, p));
+            const hue = t >= 0 ? 30 - t * 30 : 200 + (-t) * 20; // +1 -> red 0, 0 -> amber 30, -1 -> blue 220
+            const light = 45 + Math.abs(t) * 25;
+            const sat = 70 + Math.abs(t) * 25;
+            return `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`;
+        }
+
         class AcousticFieldSimulation {
             constructor(width, height, particleCount) {
                 this.width = width;
@@ -123,6 +168,7 @@
                 this.samplePressureHistory = [];
                 this.maxPressureSamples = 220;
                 this.sampleProbe = { x: this.source.x + 220, y: this.source.y };
+                this.probeColor = pitchColor(220, 1);
                 this.showWaveShell = true;
                 this.showPressureField = true;
                 this.showSliceDensityGuides = true;
@@ -193,8 +239,26 @@
                 this.pulses.push({ startTime: this.globalTime });
             }
 
-            togglePause() { 
-                this.isPaused = !this.isPaused; 
+            togglePause() {
+                this.isPaused = !this.isPaused;
+            }
+
+            // Move the emitter and re-derive every particle's polar coordinates
+            // relative to the new source position.
+            moveSource(x, y) {
+                this.source.x = x; this.source.y = y;
+                for (let p of this.particles) {
+                    const dx = p.eqX - x, dy = p.eqY - y;
+                    p.r = Math.sqrt(dx * dx + dy * dy);
+                    p.theta = Math.atan2(dy, dx);
+                }
+            }
+
+            // Recompute derived wave numbers when wavelength / amplitude change.
+            updateWave() {
+                this.k = (2 * Math.PI) / this.wavelength;
+                this.waveSpeed = this.wavelength * this.frequency;
+                this.shellWidth = this.pulseWidth * 1.35;
             }
 
             sampleFieldAtPoint(x, y) {
@@ -376,8 +440,7 @@
                         if (Math.abs(p) < 0.1) continue;
 
                         ctx.beginPath();
-                        const color = p > 0 ? `rgba(100, 255, 255, ${Math.abs(p) * 0.08})` : `rgba(100, 100, 255, ${Math.abs(p) * 0.05})`;
-                        ctx.strokeStyle = color;
+                        ctx.strokeStyle = pressureColor(p, Math.abs(p) * 0.09);
                         ctx.lineWidth = this.wavelength / 4;
                         ctx.arc(this.source.x, this.source.y, r, 0, Math.PI * 2);
                         ctx.stroke();
@@ -471,8 +534,9 @@
 
                 // Waveform
                 ctx.beginPath();
-                ctx.strokeStyle = '#0ff';
+                ctx.strokeStyle = this.probeColor;
                 ctx.lineWidth = 1.5;
+                ctx.shadowBlur = 6; ctx.shadowColor = this.probeColor;
                 for (let i = 0; i < this.samplePressureHistory.length; i++) {
                     const px = x + 10 + (i / this.maxPressureSamples) * (width - 20);
                     const py = y + height / 2 + 10 - this.samplePressureHistory[i] * 25;
@@ -480,22 +544,49 @@
                     else ctx.lineTo(px, py);
                 }
                 ctx.stroke();
+                ctx.shadowBlur = 0;
             }
 
             drawProbeMarker(ctx) {
+                const col = this.probeColor;
+                // Soft draggable halo so the probe reads as a grabbable handle.
                 ctx.beginPath();
-                ctx.strokeStyle = '#ff0';
-                ctx.lineWidth = 1;
+                ctx.arc(this.sampleProbe.x, this.sampleProbe.y, 11, 0, Math.PI * 2);
+                ctx.strokeStyle = col;
+                ctx.globalAlpha = 0.5;
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+
+                ctx.beginPath();
+                ctx.strokeStyle = col;
+                ctx.lineWidth = 1.5;
                 const s = 5;
                 ctx.moveTo(this.sampleProbe.x - s, this.sampleProbe.y);
                 ctx.lineTo(this.sampleProbe.x + s, this.sampleProbe.y);
                 ctx.moveTo(this.sampleProbe.x, this.sampleProbe.y - s);
                 ctx.lineTo(this.sampleProbe.x, this.sampleProbe.y + s);
                 ctx.stroke();
-                
-                ctx.fillStyle = '#ff0';
+
+                ctx.fillStyle = col;
                 ctx.font = '10px sans-serif';
-                ctx.fillText('probe', this.sampleProbe.x + 8, this.sampleProbe.y + 4);
+                ctx.fillText('probe', this.sampleProbe.x + 14, this.sampleProbe.y + 4);
+            }
+
+            drawSourceMarker(ctx) {
+                // The emitter, drawn as a grabbable pulsing dot.
+                const x = this.source.x, y = this.source.y;
+                ctx.beginPath();
+                ctx.arc(x, y, 7, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255,255,255,0.9)';
+                ctx.shadowBlur = 14; ctx.shadowColor = 'rgba(180,220,255,0.9)';
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.beginPath();
+                ctx.arc(x, y, 12, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(180,220,255,0.5)';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
             }
 
             render(ctx) {
@@ -521,17 +612,11 @@
                     const inSlice = Math.abs(p.eqY - this.source.y) < (this.sliceHeight / 2);
                     const clampedPressure = Math.max(-1, Math.min(1, p.localPressure));
                     
-                    // Emphasize density through position + subtle size/color
-                    // Compression (>0): Shifts toward bright cyan/white
-                    // Rarefaction (<0): Shifts toward dark blue/dimmer
-                    const rVal = Math.floor(50 + clampedPressure * 150); 
-                    const gVal = Math.floor(155 + clampedPressure * 100);
-                    const bVal = 255;
-                    
+                    // Diverging colour map: compression warm, rarefaction cool.
                     let alpha = (this.showVectors && !inSlice) ? 0.15 : 1.0;
                     if (inSlice) alpha = 0.8 + clampedPressure * 0.2; // Compression is brighter, rarefaction is dimmer
 
-                    ctx.fillStyle = `rgba(${Math.max(0, rVal)}, ${Math.max(0, gVal)}, ${bVal}, ${alpha})`; 
+                    ctx.fillStyle = pressureColor(clampedPressure, Math.max(0, alpha));
                     
                     ctx.beginPath();
                     
@@ -554,7 +639,8 @@
                 // 8. Highlighted Particle & Trail
                 this.drawHighlightedParticle(ctx);
 
-                // 9. Probe Marker
+                // 9. Source + Probe Markers
+                this.drawSourceMarker(ctx);
                 this.drawProbeMarker(ctx);
 
                 // 10. Pressure Inset
@@ -592,7 +678,7 @@
             canvas.height = window.innerHeight;
             sim.width = canvas.width;
             sim.height = canvas.height;
-            sim.source = { x: canvas.width / 2, y: canvas.height / 2 };
+            sim.moveSource(canvas.width / 2, canvas.height / 2);
             sim.sampleProbe = { x: sim.source.x + 220, y: sim.source.y };
         });
 
@@ -642,10 +728,60 @@
         carrierSlider.addEventListener('input', (e) => {
             audioState.carrierHz = parseInt(e.target.value, 10);
             carrierLabel.textContent = audioState.carrierHz + ' Hz';
+            sim.probeColor = pitchColor(audioState.carrierHz, 1);
             if (audioState.osc) {
                 audioState.osc.frequency.setTargetAtTime(audioState.carrierHz, audioState.ctx.currentTime, 0.01);
             }
         });
+
+        // Wavelength + amplitude expose the formerly hard-coded magic numbers.
+        const wavelengthSlider = document.getElementById('wavelengthSlider');
+        const wavelengthLabel = document.getElementById('wavelengthLabel');
+        const amplitudeSlider = document.getElementById('amplitudeSlider');
+        const amplitudeLabel = document.getElementById('amplitudeLabel');
+        wavelengthSlider.addEventListener('input', (e) => {
+            sim.wavelength = parseInt(e.target.value, 10);
+            wavelengthLabel.textContent = sim.wavelength + ' px';
+            sim.updateWave();
+        });
+        amplitudeSlider.addEventListener('input', (e) => {
+            sim.amplitude = parseInt(e.target.value, 10);
+            amplitudeLabel.textContent = sim.amplitude;
+        });
+
+        // ── Drag the source / probe, click empty space to ripple a pulse ──
+        let dragTarget = null;
+        function eventPos(e) {
+            const r = canvas.getBoundingClientRect();
+            return { x: e.clientX - r.left, y: e.clientY - r.top };
+        }
+        canvas.style.cursor = 'crosshair';
+        canvas.addEventListener('pointerdown', (e) => {
+            const { x, y } = eventPos(e);
+            const dS = Math.hypot(x - sim.source.x, y - sim.source.y);
+            const dP = Math.hypot(x - sim.sampleProbe.x, y - sim.sampleProbe.y);
+            if (dP < 22 && dP <= dS) { dragTarget = 'probe'; }
+            else if (dS < 26) { dragTarget = 'source'; }
+            else { sim.firePulse(); dragTarget = null; return; }
+            canvas.setPointerCapture(e.pointerId);
+            canvas.style.cursor = 'grabbing';
+        });
+        canvas.addEventListener('pointermove', (e) => {
+            if (!dragTarget) {
+                // Hover affordance.
+                const { x, y } = eventPos(e);
+                const near = Math.hypot(x - sim.source.x, y - sim.source.y) < 26 ||
+                             Math.hypot(x - sim.sampleProbe.x, y - sim.sampleProbe.y) < 22;
+                canvas.style.cursor = near ? 'grab' : 'crosshair';
+                return;
+            }
+            const { x, y } = eventPos(e);
+            if (dragTarget === 'probe') { sim.sampleProbe.x = x; sim.sampleProbe.y = y; }
+            else { sim.moveSource(x, y); }
+        });
+        const endDrag = () => { dragTarget = null; canvas.style.cursor = 'crosshair'; };
+        canvas.addEventListener('pointerup', endDrag);
+        canvas.addEventListener('pointercancel', endDrag);
         document.addEventListener('visibilitychange', () => { if (document.hidden) stopAudio(); });
 
         let lastTime = 0;

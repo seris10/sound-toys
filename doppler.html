@@ -110,6 +110,34 @@
   }
   .control button:hover { background: rgba(255,255,255,0.12); }
   .control button.on { background: rgba(88,166,255,0.2); border-color: rgba(88,166,255,0.5); color: #fff; }
+
+  /* Pitch meter: shows heard vs emitted pitch, coloured by the Doppler shift. */
+  .pitch-meter {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 26px;
+    bottom: 12px;
+    border-radius: 13px;
+    background: rgba(10,15,25,0.6);
+    border: 1px solid rgba(255,255,255,0.08);
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .pitch-meter .src-line, .pitch-meter .heard-line {
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    transition: bottom 0.08s linear, background 0.12s;
+  }
+  .pitch-meter .src-line { background: rgba(255,255,255,0.4); }
+  .pitch-meter .heard-line { height: 3px; box-shadow: 0 0 10px currentColor; }
+  .pitch-meter .pm-cap {
+    position: absolute; bottom: 4px; left: 0; right: 0;
+    text-align: center; font-size: 0.55rem; color: #707a8c;
+    text-transform: uppercase; letter-spacing: 0.06em; writing-mode: vertical-rl;
+    transform: rotate(180deg); top: 6px; bottom: auto; left: 6px;
+  }
 </style>
 </head>
 <body>
@@ -120,7 +148,9 @@
     <p>
       Drag the speaker around the listener (the ear in the centre). Wavefronts bunch up in front
       of the speaker and stretch out behind &mdash; the perceived pitch in your ears follows the
-      same maths. Try "Auto&nbsp;orbit" for a clean siren-passing-by sweep.
+      same maths. Each ring is tinted by the pitch it carries: <span style="color:hsl(5,90%,58%)">warm
+      when approaching</span> (higher), <span style="color:hsl(215,90%,60%)">cool when receding</span>
+      (lower). Try "Auto&nbsp;orbit" for a clean siren-passing-by sweep.
     </p>
   </header>
 
@@ -132,6 +162,11 @@
       v<sub>radial</sub> <strong id="vrOut">0</strong>&nbsp;m/s
     </div>
     <div class="hint" id="hint">Drag the speaker</div>
+    <div class="pitch-meter" id="pitchMeter">
+      <span class="pm-cap">pitch</span>
+      <div class="src-line" id="srcLine"></div>
+      <div class="heard-line" id="heardLine"></div>
+    </div>
   </div>
 
   <div class="controls">
@@ -158,7 +193,7 @@
     </div>
     <div class="control">
       <div class="row"><span class="name">Mode</span></div>
-      <button id="orbitBtn" type="button">Auto orbit</button>
+      <button id="orbitBtn" type="button">Auto fly-by</button>
     </div>
   </div>
 </div>
@@ -179,6 +214,35 @@
   const volVal = document.getElementById('volVal');
   const orbitBtn = document.getElementById('orbitBtn');
   const hint = document.getElementById('hint');
+  const srcLine = document.getElementById('srcLine');
+  const heardLine = document.getElementById('heardLine');
+
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---------- Sound -> colour helpers ----------
+  // pitchColor maps an absolute frequency to a colour the way the flagship
+  // "Resonance" toy does (hue = pitch class, brighter when louder/higher).
+  const ANCHOR = 65.41;
+  function pitchColor(freq, amp = 1, alpha = 1) {
+    const octavePos = Math.log2(Math.max(1e-6, freq) / ANCHOR);
+    const hue = ((octavePos % 1) * 360 + 360) % 360;
+    const octave = Math.max(0, Math.min(5, octavePos));
+    const sat = Math.min(100, 55 + octave * 6 + amp * 25);
+    const light = 38 + amp * 24;
+    return alpha >= 1 ? `hsl(${hue}, ${sat}%, ${light}%)` : `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`;
+  }
+  // shiftColor maps a Doppler ratio (heard / emitted) to a warm-cool hue so
+  // the front of the source (bunched wavefronts, higher pitch) reads warm and
+  // the back (stretched, lower pitch) reads cool. This is the toy's signature.
+  function shiftColor(ratio, alpha = 1) {
+    const semis = 12 * Math.log2(Math.max(1e-4, ratio)); // signed semitone shift
+    const t = Math.max(-1, Math.min(1, semis / 7));      // clamp to ~a fifth
+    // t = +1 (approaching) -> red 0; t = 0 -> yellow 55; t = -1 (receding) -> blue 215
+    const hue = t >= 0 ? 55 - t * 55 : 55 - t * 160;
+    const light = 52 + Math.abs(t) * 8;
+    return `hsla(${hue}, 90%, ${light}%, ${alpha})`;
+  }
+  const srcTrail = [];
 
   // ---------- State ----------
   // World coordinates: 1 px == 1 m for simplicity.
@@ -213,9 +277,18 @@
   let lastEmit = -1;
 
   function emitFront(now, soundSpeed) {
-    const period = 1 / Math.max(20, parseFloat(srcFreq.value));
+    // Emit at a fixed visual cadence so wavefront spacing stays readable
+    // regardless of the (audio) source frequency.
+    const period = 0.12;
     if (now - lastEmit >= period) {
-      fronts.push({ x: source.x, y: source.y, t0: now });
+      // Radial velocity of the source toward the listener at emission time,
+      // which sets the Doppler factor this wavefront carries to the ear.
+      const dx = listener.x - source.x, dy = listener.y - source.y;
+      const dist = Math.max(1, Math.hypot(dx, dy));
+      const vr = (source.vx * dx + source.vy * dy) / dist;
+      const denom = Math.max(soundSpeed * 0.05, soundSpeed - vr);
+      const ratio = soundSpeed / denom; // heard / emitted
+      fronts.push({ x: source.x, y: source.y, t0: now, ratio });
       lastEmit = now;
       // Cull old.
       while (fronts.length > 200) fronts.shift();
@@ -288,7 +361,7 @@
     orbit = !orbit;
     orbitBtn.classList.toggle('on', orbit);
     if (orbit) {
-      orbitAngle = Math.atan2(source.y - listener.y, source.x - listener.x);
+      orbitAngle = -Math.PI / 2; // start the source out at one side
       hint.classList.add('hidden');
     }
   });
@@ -302,10 +375,15 @@
     const soundSpeed = parseFloat(cSlider.value);
 
     if (orbit) {
-      // Move source on a circle, computing velocity from position delta.
-      orbitAngle += dt * 1.2;
-      const newX = listener.x + Math.cos(orbitAngle) * orbitRadius;
-      const newY = listener.y + Math.sin(orbitAngle) * orbitRadius;
+      // A straight fly-by past the listener (offset above it) so the distance
+      // genuinely shrinks then grows — that's what makes the pitch sweep up as
+      // the source approaches and down as it recedes. A circle centred on the
+      // listener keeps distance constant and produces no Doppler shift at all.
+      orbitAngle += dt * 0.7;
+      const span = orbitRadius * 1.7;
+      const passOffset = orbitRadius * 0.42;
+      const newX = listener.x + Math.sin(orbitAngle) * span;
+      const newY = listener.y - passOffset;
       source.vx = (newX - source.x) / dt;
       source.vy = (newY - source.y) / dt;
       source.x = newX; source.y = newY;
@@ -330,31 +408,70 @@
     // Clamp to keep things sane if the user flings the source absurdly fast.
     const denom = Math.max(soundSpeed * 0.05, soundSpeed - vRadial);
     const heard = f0 * soundSpeed / denom;
+    const ratio = heard / f0;
+    window._lastRatio = ratio;
     applyHeard(heard);
 
     srcOut.textContent = Math.round(f0);
     heardOut.textContent = Math.round(heard);
+    heardOut.style.color = shiftColor(ratio, 1);
     vrOut.textContent = vRadial.toFixed(0);
+
+    // Pitch meter: emitted vs heard, on a log scale, coloured by the shift.
+    const lo = 60, hi = 2000;
+    const posOf = (hz) => Math.max(0, Math.min(1, (Math.log2(hz / lo)) / Math.log2(hi / lo)));
+    srcLine.style.bottom = (posOf(f0) * 100) + '%';
+    heardLine.style.bottom = (posOf(heard) * 100) + '%';
+    heardLine.style.background = shiftColor(ratio, 1);
+    heardLine.style.color = shiftColor(ratio, 1);
 
     // ---------- Render ----------
     const r = cv.getBoundingClientRect();
     const w = r.width, h = r.height;
     c2d.clearRect(0, 0, w, h);
 
-    // Wavefronts.
+    // Wavefronts, coloured by the Doppler shift they carry: warm where the
+    // source was approaching (bunched, higher pitch), cool where receding.
     for (const f of fronts) {
       const age = now - f.t0;
       const radius = age * soundSpeed;
       if (radius > Math.hypot(w, h)) continue;
       const alpha = Math.max(0, 1 - age / 6);
+      const col = shiftColor(f.ratio, alpha * 0.6);
       c2d.beginPath();
       c2d.arc(f.x, f.y, radius, 0, Math.PI * 2);
-      c2d.strokeStyle = `rgba(88, 166, 255, ${alpha * 0.5})`;
-      c2d.lineWidth = 1;
+      c2d.strokeStyle = col;
+      c2d.lineWidth = 1.4;
+      c2d.shadowBlur = 6;
+      c2d.shadowColor = shiftColor(f.ratio, alpha * 0.5);
       c2d.stroke();
     }
+    c2d.shadowBlur = 0;
 
-    // Listener (ear glyph).
+    // Source motion trail.
+    srcTrail.push({ x: source.x, y: source.y });
+    if (srcTrail.length > 48) srcTrail.shift();
+    if (!reduceMotion && srcTrail.length > 1) {
+      const f0col = parseFloat(srcFreq.value);
+      for (let i = 1; i < srcTrail.length; i++) {
+        const a = (i / srcTrail.length) * 0.4;
+        c2d.beginPath();
+        c2d.moveTo(srcTrail[i - 1].x, srcTrail[i - 1].y);
+        c2d.lineTo(srcTrail[i].x, srcTrail[i].y);
+        c2d.strokeStyle = pitchColor(f0col, 0.6, a);
+        c2d.lineWidth = 2;
+        c2d.stroke();
+      }
+    }
+
+    // Listener (ear glyph), softly pulsing with the heard pitch.
+    const heardCol = shiftColor(window._lastRatio || 1, 1);
+    c2d.beginPath();
+    c2d.arc(listener.x, listener.y, 16, 0, Math.PI * 2);
+    c2d.fillStyle = heardCol;
+    c2d.globalAlpha = 0.18;
+    c2d.fill();
+    c2d.globalAlpha = 1;
     c2d.fillStyle = '#fff';
     c2d.beginPath();
     c2d.arc(listener.x, listener.y, 12, 0, Math.PI * 2);
@@ -365,19 +482,22 @@
     c2d.textBaseline = 'middle';
     c2d.fillText('L', listener.x, listener.y);
 
-    // Source (with velocity arrow).
+    // Source (coloured by its emitted pitch) with velocity arrow.
     const speed = Math.hypot(source.vx, source.vy);
+    const srcCol = pitchColor(parseFloat(srcFreq.value), 0.9);
     c2d.beginPath();
     c2d.arc(source.x, source.y, 14, 0, Math.PI * 2);
-    c2d.fillStyle = '#58a6ff';
+    c2d.fillStyle = srcCol;
+    c2d.shadowBlur = 16; c2d.shadowColor = srcCol;
     c2d.fill();
+    c2d.shadowBlur = 0;
     c2d.fillStyle = '#0a0f19';
     c2d.font = 'bold 14px sans-serif';
     c2d.fillText('S', source.x, source.y);
     if (speed > 5) {
       const len = Math.min(80, speed * 0.15);
       const angle = Math.atan2(source.vy, source.vx);
-      c2d.strokeStyle = 'rgba(255,255,255,0.6)';
+      c2d.strokeStyle = 'rgba(255,255,255,0.7)';
       c2d.lineWidth = 2;
       c2d.beginPath();
       c2d.moveTo(source.x, source.y);
