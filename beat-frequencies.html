@@ -40,7 +40,7 @@
   .canvases {
     flex: 1;
     display: grid;
-    grid-template-rows: 1fr 1fr 1.4fr;
+    grid-template-rows: 1fr 1fr 1.4fr 0.5fr;
     gap: 10px;
     min-height: 0;
   }
@@ -50,6 +50,7 @@
     border: 1px solid rgba(255,255,255,0.07);
     border-radius: 10px;
     overflow: hidden;
+    transition: border-color 0.15s, box-shadow 0.15s;
   }
   .scope canvas {
     display: block;
@@ -65,6 +66,7 @@
     letter-spacing: 0.1em;
     color: #707a8c;
     font-weight: 600;
+    transition: color 0.15s;
   }
   .scope .readout {
     position: absolute;
@@ -73,12 +75,14 @@
     font-size: 0.78rem;
     color: #aab2c0;
     font-variant-numeric: tabular-nums;
+    transition: color 0.15s;
   }
   .scope.sum .label { color: #c0d0e8; }
   .scope.sum {
     border-color: rgba(88, 166, 255, 0.25);
     background: rgba(88, 166, 255, 0.03);
   }
+  .scope.spectrum .label { color: #8a93a6; }
 
   .controls {
     display: grid;
@@ -90,6 +94,7 @@
     border: 1px solid rgba(255,255,255,0.08);
     border-radius: 10px;
     padding: 14px 16px;
+    transition: border-color 0.15s;
   }
   .control .row {
     display: flex;
@@ -144,6 +149,7 @@
     cursor: pointer;
     box-shadow: 0 0 8px var(--accent);
   }
+  /* Accents default to pitch colours; JS keeps them in sync with each pitch. */
   .control.a { --accent: #f59e0b; }
   .control.b { --accent: #22d3ee; }
 
@@ -185,6 +191,9 @@
     border: 1px solid rgba(88, 166, 255, 0.25);
     border-radius: 8px;
     font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
   }
   .beat-readout strong {
     color: #fff;
@@ -193,7 +202,16 @@
   }
   .beat-readout .hint {
     color: #aab2c0;
-    margin-left: 6px;
+    margin-left: 2px;
+  }
+  /* Beat-pulse indicator: a ring that physically pulses at f2-f1. */
+  .pulse {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    background: #58a6ff;
+    box-shadow: 0 0 10px rgba(88,166,255,0.6);
   }
 
   .preset {
@@ -212,6 +230,7 @@
     .wrap { padding: 16px; gap: 12px; }
     .controls { grid-template-columns: 1fr; }
     .beat-readout { margin-left: 0; width: 100%; }
+    .canvases { grid-template-rows: 1fr 1fr 1.4fr 0.5fr; }
   }
 </style>
 </head>
@@ -223,18 +242,19 @@
     <p>
       Two pure tones, side by side. Tune them close together &mdash; if their frequencies differ by
       <em>f<sub>2</sub>&minus;f<sub>1</sub></em> hertz, the combined sound pulses that many times a
-      second. The wobble you hear is the same math the eye sees in the bottom scope.
+      second. The wobble you hear is the same math the eye sees in the bottom scope &mdash; and each
+      tone is coloured by its own pitch.
     </p>
   </header>
 
   <div class="canvases">
-    <div class="scope">
-      <span class="label">Oscillator A</span>
+    <div class="scope" id="scopeWrapA">
+      <span class="label" id="labelA">Oscillator A</span>
       <span class="readout" id="readA">440 Hz</span>
       <canvas id="scopeA"></canvas>
     </div>
-    <div class="scope">
-      <span class="label">Oscillator B</span>
+    <div class="scope" id="scopeWrapB">
+      <span class="label" id="labelB">Oscillator B</span>
       <span class="readout" id="readB">444 Hz</span>
       <canvas id="scopeB"></canvas>
     </div>
@@ -242,17 +262,21 @@
       <span class="label">Sum &mdash; what you hear</span>
       <canvas id="scopeSum"></canvas>
     </div>
+    <div class="scope spectrum">
+      <span class="label">Live spectrum &mdash; the two peaks converge</span>
+      <canvas id="scopeSpec"></canvas>
+    </div>
   </div>
 
   <div class="controls">
-    <div class="control a">
+    <div class="control a" id="ctrlA">
       <div class="row">
         <span class="name">Oscillator A</span>
         <span class="value" id="valA">440.0 Hz</span>
       </div>
       <input type="range" id="freqA" min="100" max="800" step="0.1" value="440">
     </div>
-    <div class="control b">
+    <div class="control b" id="ctrlB">
       <div class="row">
         <span class="name">Oscillator B</span>
         <span class="value" id="valB">444.0 Hz</span>
@@ -275,15 +299,36 @@
     <button class="preset" data-fa="440" data-fb="660" type="button">Perfect fifth</button>
     <button class="preset" data-fa="440" data-fb="440" type="button">Unison</button>
     <div class="beat-readout">
-      Beat frequency: <strong id="beat">4.0 Hz</strong>
-      <span class="hint" id="beatHint"></span>
+      <span class="pulse" id="pulse"></span>
+      <span>Beat frequency: <strong id="beat">4.0 Hz</strong>
+      <span class="hint" id="beatHint"></span></span>
     </div>
   </div>
 </div>
 
 <script>
+  // ---------- Sound -> Colour engine ----------
+  // Maps an audio frequency -> colour (chromatic / octave-cycling, like "Resonance").
+  function pitchColor(freq, amp = 1, alpha = 1) {
+    const ANCHOR = 65.41; // C2 -> hue 0 (red), per Scriabin C=red
+    const octavePos = Math.log2(Math.max(1e-6, freq) / ANCHOR);
+    const hue = ((octavePos % 1) * 360 + 360) % 360;
+    const octave = Math.max(0, Math.min(5, octavePos));
+    const sat = Math.min(100, 55 + octave * 6 + amp * 25);
+    const light = 38 + amp * 24;
+    return alpha >= 1 ? `hsl(${hue}, ${sat}%, ${light}%)` : `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`;
+  }
+  function pitchHue(freq) {
+    const ANCHOR = 65.41;
+    return ((Math.log2(Math.max(1e-6, freq) / ANCHOR) % 1) * 360 + 360) % 360;
+  }
+
+  const reduceMotion = window.matchMedia &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   // ---------- Audio ----------
-  let ctx = null, oscA, oscB, gainA, gainB, master;
+  let ctx = null, oscA, oscB, gainA, gainB, master, analyser;
+  let freqData = null;
   let playing = false;
 
   function ensure() {
@@ -291,7 +336,12 @@
     ctx = new (window.AudioContext || window.webkitAudioContext)();
     master = ctx.createGain();
     master.gain.value = parseFloat(vol.value) / 100;
-    master.connect(ctx.destination);
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.8;
+    freqData = new Uint8Array(analyser.frequencyBinCount);
+    master.connect(analyser);
+    analyser.connect(ctx.destination);
   }
 
   function startTones() {
@@ -325,11 +375,36 @@
   const valB = document.getElementById('valB');
   const readA = document.getElementById('readA');
   const readB = document.getElementById('readB');
+  const labelA = document.getElementById('labelA');
+  const labelB = document.getElementById('labelB');
+  const ctrlA = document.getElementById('ctrlA');
+  const ctrlB = document.getElementById('ctrlB');
+  const scopeWrapA = document.getElementById('scopeWrapA');
+  const scopeWrapB = document.getElementById('scopeWrapB');
   const beat = document.getElementById('beat');
   const beatHint = document.getElementById('beatHint');
+  const pulse = document.getElementById('pulse');
   const vol = document.getElementById('vol');
   const playBtn = document.getElementById('playBtn');
   const playLabel = document.getElementById('playLabel');
+
+  function colorScopeChrome() {
+    const fa = parseFloat(freqA.value);
+    const fb = parseFloat(freqB.value);
+    const ca = pitchColor(fa, 1);
+    const cb = pitchColor(fb, 1);
+    // Slider thumb / accent colour follows pitch.
+    ctrlA.style.setProperty('--accent', ca);
+    ctrlB.style.setProperty('--accent', cb);
+    // Readouts + labels follow pitch.
+    valA.style.color = ca; valB.style.color = cb;
+    labelA.style.color = pitchColor(fa, 1, 0.85);
+    labelB.style.color = pitchColor(fb, 1, 0.85);
+    readA.style.color = pitchColor(fa, 1, 0.85);
+    readB.style.color = pitchColor(fb, 1, 0.85);
+    scopeWrapA.style.borderColor = pitchColor(fa, 1, 0.3);
+    scopeWrapB.style.borderColor = pitchColor(fb, 1, 0.3);
+  }
 
   function updateLabels() {
     const fa = parseFloat(freqA.value);
@@ -344,6 +419,7 @@
     else if (d < 8) beatHint.textContent = '— audible wobble';
     else if (d < 20) beatHint.textContent = '— a rough, dissonant roughness';
     else beatHint.textContent = '— two distinct tones';
+    colorScopeChrome();
   }
 
   function applyLive() {
@@ -372,58 +448,203 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden) stopTones(); });
 
   // ---------- Scopes ----------
-  const scopes = ['scopeA', 'scopeB', 'scopeSum'].map(id => {
+  const scopes = ['scopeA', 'scopeB', 'scopeSum', 'scopeSpec'].map(id => {
     const c = document.getElementById(id);
-    return { canvas: c, ctx: c.getContext('2d') };
+    return { canvas: c, ctx: c.getContext('2d'), _w: 1, _h: 1 };
   });
 
   function resize() {
     scopes.forEach(s => {
       const r = s.canvas.parentElement.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
-      s.canvas.width = r.width * dpr;
-      s.canvas.height = r.height * dpr;
+      s.canvas.width = Math.max(1, Math.round(r.width * dpr));
+      s.canvas.height = Math.max(1, Math.round(r.height * dpr));
       s.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       s._w = r.width; s._h = r.height;
     });
   }
   window.addEventListener('resize', resize);
 
-  // Each scope shows ~1.5 seconds of waveform at the chosen frequencies,
-  // not at audio sample rate. This is a teaching visualization, decoupled
-  // from the actual synthesis path so it stays smooth even at high f.
-  function drawWave(s, fn, color) {
-    const { ctx: c, _w: w, _h: h } = s;
-    c.clearRect(0, 0, w, h);
-    // baseline
+  function baseline(c, w, h) {
     c.strokeStyle = 'rgba(255,255,255,0.06)';
     c.lineWidth = 1;
-    c.beginPath(); c.moveTo(0, h/2); c.lineTo(w, h/2); c.stroke();
+    c.beginPath(); c.moveTo(0, h / 2); c.lineTo(w, h / 2); c.stroke();
+  }
 
-    c.strokeStyle = color;
-    c.lineWidth = 1.5;
-    c.beginPath();
+  // Single-tone scope, coloured by its pitch, with a soft glow pass.
+  function drawWave(s, fn, freq) {
+    const { ctx: c, _w: w, _h: h } = s;
+    c.clearRect(0, 0, w, h);
+    baseline(c, w, h);
+
     const N = w;
+    // glow pass
+    c.strokeStyle = pitchColor(freq, 1, 0.35);
+    c.lineWidth = 4;
+    c.shadowBlur = 10;
+    c.shadowColor = pitchColor(freq, 1, 0.5);
+    c.lineJoin = 'round';
+    c.beginPath();
     for (let i = 0; i < N; i++) {
-      const x = i;
       const t = (i / N) * window._win;
-      const y = h/2 - fn(t) * (h * 0.4);
-      if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+      const y = h / 2 - fn(t) * (h * 0.4);
+      if (i === 0) c.moveTo(i, y); else c.lineTo(i, y);
+    }
+    c.stroke();
+    // core pass
+    c.shadowBlur = 0;
+    c.strokeStyle = pitchColor(freq, 1);
+    c.lineWidth = 1.6;
+    c.beginPath();
+    for (let i = 0; i < N; i++) {
+      const t = (i / N) * window._win;
+      const y = h / 2 - fn(t) * (h * 0.4);
+      if (i === 0) c.moveTo(i, y); else c.lineTo(i, y);
     }
     c.stroke();
   }
 
+  // Sum scope: colour blends A & B, brightness/alpha tracks the instantaneous
+  // beat envelope |cos(pi*(fa-fb)*t)|. Slow envelope outline glows on top.
+  function drawSum(s, fa, fb) {
+    const { ctx: c, _w: w, _h: h } = s;
+    c.clearRect(0, 0, w, h);
+    baseline(c, w, h);
+
+    const win = window._win;
+    const hueA = pitchHue(fa);
+    const hueB = pitchHue(fb);
+    const N = w;
+    const sumFn = t => 0.5 * (Math.sin(2 * Math.PI * fa * t) + Math.sin(2 * Math.PI * fb * t));
+    const envFn = t => Math.abs(Math.cos(Math.PI * (fa - fb) * t)); // 0..1 beat envelope
+
+    // Hue midpoint (circular) for the blended sum colour.
+    let dh = hueB - hueA;
+    if (dh > 180) dh -= 360; if (dh < -180) dh += 360;
+    const midHue = ((hueA + dh * 0.5) + 360) % 360;
+
+    c.lineJoin = 'round';
+    c.lineCap = 'round';
+
+    // Waveform drawn as short coloured segments; brightness follows the envelope.
+    for (let i = 1; i < N; i++) {
+      const t0 = ((i - 1) / N) * win;
+      const t1 = (i / N) * win;
+      const y0 = h / 2 - sumFn(t0) * (h * 0.4);
+      const y1 = h / 2 - sumFn(t1) * (h * 0.4);
+      const env = envFn(t1);                 // 0 at a node, 1 at an antinode
+      const light = 30 + env * 38;           // dark in the troughs, neon at the swells
+      const alpha = 0.25 + env * 0.7;
+      c.strokeStyle = `hsla(${midHue}, ${60 + env * 30}%, ${light}%, ${alpha})`;
+      c.lineWidth = 1.4 + env * 2.2;
+      c.beginPath();
+      c.moveTo(i - 1, y0);
+      c.lineTo(i, y1);
+      c.stroke();
+    }
+
+    // Slow beat-envelope outline: a glowing pair of curves hugging the swell.
+    c.shadowBlur = 8;
+    c.shadowColor = `hsla(${midHue}, 80%, 60%, 0.5)`;
+    for (const sign of [1, -1]) {
+      c.beginPath();
+      for (let i = 0; i < N; i++) {
+        const t = (i / N) * win;
+        const env = envFn(t);
+        const y = h / 2 - sign * env * (h * 0.42);
+        if (i === 0) c.moveTo(i, y); else c.lineTo(i, y);
+      }
+      c.strokeStyle = `hsla(${midHue}, 85%, 65%, 0.55)`;
+      c.lineWidth = 1.5;
+      c.stroke();
+    }
+    c.shadowBlur = 0;
+  }
+
+  // Live FFT strip from the real master output: two peaks that converge.
+  function drawSpectrum(s, fa, fb) {
+    const { ctx: c, _w: w, _h: h } = s;
+    c.clearRect(0, 0, w, h);
+    if (!analyser || !playing) {
+      baseline(c, w, h);
+      return;
+    }
+    analyser.getByteFrequencyData(freqData);
+    const nyquist = ctx.sampleRate / 2;
+    // Focus on the region around the two tones for a readable view.
+    const fLo = Math.max(0, Math.min(fa, fb) - 120);
+    const fHi = Math.max(fa, fb) + 120;
+    const binLo = Math.floor(fLo / nyquist * freqData.length);
+    const binHi = Math.ceil(fHi / nyquist * freqData.length);
+    const span = Math.max(1, binHi - binLo);
+
+    for (let x = 0; x < w; x++) {
+      const bin = binLo + Math.floor((x / w) * span);
+      const v = freqData[Math.min(bin, freqData.length - 1)] / 255;
+      if (v <= 0.01) continue;
+      const freqAtX = (bin / freqData.length) * nyquist;
+      const barH = v * h * 0.92;
+      c.fillStyle = pitchColor(freqAtX, v, 0.35 + v * 0.6);
+      c.fillRect(x, h - barH, 1, barH);
+    }
+  }
+
+  // ---------- Beat-pulse indicator ----------
+  // A ring that physically pulses at exactly f2-f1, synced to the envelope phase.
+  let pulsePhase = 0;
+  let lastT = performance.now();
+  function updatePulse(fa, fb, dtSec) {
+    const d = Math.abs(fa - fb);
+    const midHue = (() => {
+      let dh = pitchHue(fb) - pitchHue(fa);
+      if (dh > 180) dh -= 360; if (dh < -180) dh += 360;
+      return ((pitchHue(fa) + dh * 0.5) + 360) % 360;
+    })();
+
+    if (reduceMotion) {
+      // Calm fallback: steady ring, no flashing, just a faint colour cue.
+      pulse.style.background = `hsl(${midHue}, 70%, 55%)`;
+      pulse.style.boxShadow = `0 0 10px hsla(${midHue}, 80%, 60%, 0.6)`;
+      pulse.style.transform = 'scale(1)';
+      pulse.style.opacity = '0.85';
+      return;
+    }
+
+    if (d < 0.05) {
+      // Unison: hold steady.
+      pulsePhase = 0;
+      pulse.style.transform = 'scale(1)';
+      pulse.style.opacity = '0.9';
+    } else {
+      pulsePhase += d * dtSec;          // cycles per second = beat frequency
+      const env = Math.abs(Math.cos(Math.PI * pulsePhase)); // 0..1 swell
+      const scale = 0.7 + env * 0.9;
+      pulse.style.transform = `scale(${scale.toFixed(3)})`;
+      pulse.style.opacity = (0.45 + env * 0.55).toFixed(3);
+    }
+    pulse.style.background = `hsl(${midHue}, 75%, ${50 + (d < 0.05 ? 0 : 12)}%)`;
+    pulse.style.boxShadow = `0 0 ${10 + 14 * Math.abs(Math.cos(Math.PI * pulsePhase))}px hsla(${midHue}, 85%, 62%, 0.7)`;
+  }
+
+  // ---------- Render ----------
   function render() {
+    const now = performance.now();
+    const dtSec = Math.min(0.05, (now - lastT) / 1000);
+    lastT = now;
+
     const fa = parseFloat(freqA.value);
     const fb = parseFloat(freqB.value);
     const d = Math.abs(fa - fb);
-    // Pick a window that fits two beat periods if there's a beat,
-    // otherwise a few cycles of the lower tone.
+    // Window that fits two beat periods if there's a beat, else a few cycles.
     const win = d > 0.5 ? Math.min(4, 2 / d) : Math.max(0.01, 6 / Math.min(fa, fb));
     window._win = win;
-    drawWave(scopes[0], t => Math.sin(2 * Math.PI * fa * t), '#f59e0b');
-    drawWave(scopes[1], t => Math.sin(2 * Math.PI * fb * t), '#22d3ee');
-    drawWave(scopes[2], t => 0.5 * (Math.sin(2 * Math.PI * fa * t) + Math.sin(2 * Math.PI * fb * t)), '#58a6ff');
+
+    drawWave(scopes[0], t => Math.sin(2 * Math.PI * fa * t), fa);
+    drawWave(scopes[1], t => Math.sin(2 * Math.PI * fb * t), fb);
+    drawSum(scopes[2], fa, fb);
+    drawSpectrum(scopes[3], fa, fb);
+    updatePulse(fa, fb, dtSec);
+
     requestAnimationFrame(render);
   }
 

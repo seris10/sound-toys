@@ -220,13 +220,26 @@
     right: 40px;
     background: rgba(255,255,255,0.15);
     border-radius: 4px;
-    transition: background 0.2s, box-shadow 0.2s;
+    transition: box-shadow 0.2s;
     pointer-events: none;
   }
   .creature-bar.active {
-    background: var(--accent, #58a6ff);
-    box-shadow: 0 0 12px var(--accent, #58a6ff);
+    /* background + glow are driven live from JS while playing */
   }
+  /* Animated octave-shift connector drawn between play + ghost markers. */
+  .shift-link {
+    position: absolute;
+    left: 56px;
+    width: 2px;
+    background: linear-gradient(to bottom,
+      rgba(255,255,255,0.0) 0%,
+      rgba(255,255,255,0.55) 50%,
+      rgba(255,255,255,0.0) 100%);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.25s;
+  }
+  .shift-link.visible { opacity: 1; }
   .play-marker {
     position: absolute;
     left: 56px;
@@ -273,6 +286,35 @@
     border-radius: 3px;
   }
 
+  /* --- Live output visualizer (real AnalyserNode) --- */
+  .live-scope {
+    position: relative;
+    margin-top: 12px;
+    height: 88px;
+    border-radius: 10px;
+    background: rgba(0,0,0,0.32);
+    border: 1px solid rgba(255,255,255,0.07);
+    overflow: hidden;
+    flex-shrink: 0;
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+  .live-scope.active {
+    border-color: color-mix(in srgb, var(--accent-current, #58a6ff) 45%, transparent);
+  }
+  .live-scope canvas { display: block; width: 100%; height: 100%; }
+  .live-scope-label {
+    position: absolute;
+    top: 7px;
+    left: 10px;
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #707a8c;
+    font-weight: 600;
+    pointer-events: none;
+    z-index: 2;
+  }
+
   /* --- Status banner that appears while a shifted sound plays --- */
   .shift-banner {
     margin-top: 12px;
@@ -296,7 +338,8 @@
       padding: 16px;
       gap: 16px;
     }
-    .tower-pane { max-height: 38vh; }
+    .tower-pane { max-height: 46vh; }
+    .live-scope { height: 64px; }
   }
 </style>
 </head>
@@ -323,10 +366,15 @@
         <span class="audible-label" style="top:0;">20 kHz</span>
         <span class="audible-label" style="bottom:0;">20 Hz</span>
       </div>
+      <div class="shift-link" id="shiftLink"></div>
       <div class="play-marker" id="playMarker"></div>
       <div class="ghost-marker" id="ghostMarker">
         <span class="ghost-label">heard</span>
       </div>
+    </div>
+    <div class="live-scope" id="liveScope">
+      <span class="live-scope-label" id="liveScopeLabel">live output</span>
+      <canvas id="liveCanvas"></canvas>
     </div>
     <div class="shift-banner empty" id="shiftBanner">
       Pick a creature on the left to hear what their range sounds like.
@@ -335,6 +383,22 @@
 </div>
 
 <script>
+  // ---------- Shared sound -> color helpers (the "Resonance" mapping) ----------
+  // Hue = pitch class (360 deg per octave); saturation rises with register +
+  // loudness; lightness rises with loudness.
+  function pitchColor(freq, amp = 1, alpha = 1) {
+    const ANCHOR = 65.41;
+    const octavePos = Math.log2(Math.max(1e-6, freq) / ANCHOR);
+    const hue = ((octavePos % 1) * 360 + 360) % 360;
+    const octave = Math.max(0, Math.min(5, octavePos));
+    const sat = Math.min(100, 55 + octave * 6 + amp * 25);
+    const light = 38 + amp * 24;
+    return alpha >= 1 ? `hsl(${hue}, ${sat}%, ${light}%)` : `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`;
+  }
+  function pitchHue(freq){const A=65.41;return((Math.log2(Math.max(1e-6,freq)/A)%1)*360+360)%360;}
+
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   // ---------- Spectrum extents (log Hz) ----------
   const F_MIN = 0.1;     // Hz
   const F_MAX = 200000;  // Hz
@@ -465,6 +529,9 @@
   // ---------- Audio engine ----------
   let audioCtx = null;
   let masterGain = null;
+  let analyser = null;
+  let analyserTime = null;   // Float32Array waveform
+  let analyserFreq = null;   // Uint8Array spectrum
   let activeSound = null; // { stop(): void, creatureId }
 
   function ensureAudio() {
@@ -472,8 +539,28 @@
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     masterGain = audioCtx.createGain();
     masterGain.gain.value = 0.4;
-    masterGain.connect(audioCtx.destination);
+    // Live analyser on the master bus drives every animated visual.
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.8;
+    analyserTime = new Float32Array(analyser.fftSize);
+    analyserFreq = new Uint8Array(analyser.frequencyBinCount);
+    masterGain.connect(analyser);
+    analyser.connect(audioCtx.destination);
     return audioCtx;
+  }
+
+  // Current RMS level read from the analyser (0..~1), smoothed for breathing glow.
+  let liveLevel = 0;
+  function readLevel() {
+    if (!analyser) return 0;
+    analyser.getFloatTimeDomainData(analyserTime);
+    let sum = 0;
+    for (let i = 0; i < analyserTime.length; i++) sum += analyserTime[i] * analyserTime[i];
+    const rms = Math.sqrt(sum / analyserTime.length);
+    // Lerp toward the new level for a smooth, "Resonance"-style breathing glow.
+    liveLevel += (rms - liveLevel) * (reduceMotion ? 0.5 : 0.2);
+    return liveLevel;
   }
 
   // Pick a playback frequency inside the audible band that preserves the
@@ -497,6 +584,7 @@
       try { activeSound.stop(); } catch (e) {}
       activeSound = null;
     }
+    if (typeof endVisuals === 'function') endVisuals();
   }
 
   // ---------- Synth voices ----------
@@ -746,7 +834,20 @@
   const audibleBand = document.getElementById('audibleBand');
   const playMarker = document.getElementById('playMarker');
   const ghostMarker = document.getElementById('ghostMarker');
+  const shiftLink = document.getElementById('shiftLink');
   const shiftBanner = document.getElementById('shiftBanner');
+  const liveScope = document.getElementById('liveScope');
+  const liveScopeLabel = document.getElementById('liveScopeLabel');
+  const liveCanvas = document.getElementById('liveCanvas');
+  const lctx = liveCanvas.getContext('2d');
+
+  // Convert a #rrggbb hex accent to an rgba() string with the given alpha.
+  function withAlpha(hex, a) {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex.trim());
+    if (!m) return hex;
+    const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
 
   // Position audible band on the tower (20 Hz to 20 kHz).
   function layoutAudibleBand() {
@@ -797,7 +898,8 @@
       card.addEventListener('click', () => play(c));
       cardGrid.appendChild(card);
 
-      // Bar on the tower.
+      // Bar on the tower. Color it by frequency so the whole tower reads as a
+      // rainbow ruler (hue = pitch class of the band's center frequency).
       const bar = document.createElement('div');
       bar.className = 'creature-bar';
       bar.dataset.id = c.id;
@@ -805,11 +907,16 @@
       const hi = freqToPos(c.hiHz);
       bar.style.bottom = (lo * 100) + '%';
       bar.style.height = Math.max(0.6, (hi - lo) * 100) + '%';
+      const barHue = pitchHue(c.centerHz);
+      bar.style.setProperty('--bar-hue', barHue);
+      bar.style.background = `hsla(${barHue}, 70%, 55%, 0.22)`;
       tower.appendChild(bar);
 
-      card.addEventListener('mouseenter', () => bar.style.background = c.accent);
+      card.addEventListener('mouseenter', () => {
+        if (!bar.classList.contains('active')) bar.style.background = `hsla(${barHue}, 80%, 58%, 0.5)`;
+      });
       card.addEventListener('mouseleave', () => {
-        if (!card.classList.contains('active')) bar.style.background = '';
+        if (!bar.classList.contains('active')) bar.style.background = `hsla(${barHue}, 70%, 55%, 0.22)`;
       });
     });
   }
@@ -829,10 +936,14 @@
   }
 
   // ---------- Playback ----------
+  let activeCreature = null; // creature object currently sounding (for the anim loop)
+
   function play(c) {
     const ctx = ensureAudio();
     if (ctx.state === 'suspended') ctx.resume();
     stopActive();
+    activeCreature = c;
+    liveLevel = 0;
 
     // Visual state.
     document.querySelectorAll('.card').forEach(el => {
@@ -842,9 +953,15 @@
     document.querySelectorAll('.creature-bar').forEach(el => {
       const match = el.dataset.id === c.id;
       el.classList.toggle('active', match);
-      el.style.background = match ? c.accent : '';
+      if (!match) {
+        const h = el.style.getPropertyValue('--bar-hue') || pitchHue(440);
+        el.style.background = `hsla(${h}, 70%, 55%, 0.22)`;
+        el.style.boxShadow = '';
+      }
     });
     document.documentElement.style.setProperty('--accent-current', c.accent);
+    liveScope.classList.add('active');
+    liveScopeLabel.textContent = c.name + ' — live output';
 
     // Markers.
     const nativePos = freqToPos(c.centerHz);
@@ -858,8 +975,20 @@
       const heardPos = freqToPos(playHz);
       ghostMarker.style.bottom = (heardPos * 100) + '%';
       ghostMarker.classList.add('visible');
+      // Connector between native (play) and heard (ghost) markers, showing
+      // the octave shift. Position spans the two marker rows.
+      const lo = Math.min(nativePos, heardPos);
+      const hi = Math.max(nativePos, heardPos);
+      shiftLink.style.bottom = (lo * 100) + '%';
+      shiftLink.style.height = ((hi - lo) * 100) + '%';
+      shiftLink.style.background = `linear-gradient(to bottom,
+        ${withAlpha(c.accent, 0)} 0%,
+        ${withAlpha(c.accent, 0.6)} 50%,
+        ${withAlpha(c.accent, 0)} 100%)`;
+      shiftLink.classList.add('visible');
     } else {
       ghostMarker.classList.remove('visible');
+      shiftLink.classList.remove('visible');
     }
 
     // Banner.
@@ -880,10 +1009,30 @@
     // Clear the playing visual when the sound naturally ends.
     setTimeout(() => {
       if (activeSound && activeSound.creatureId === c.id) {
-        document.querySelectorAll('.card').forEach(el => el.classList.remove('playing'));
+        endVisuals();
         activeSound = null;
       }
     }, dur * 1000 + 50);
+  }
+
+  // Tear down the "playing" visual state (cards, bar glow, markers, scope).
+  function endVisuals() {
+    activeCreature = null;
+    document.querySelectorAll('.card').forEach(el => {
+      el.classList.remove('playing');
+      el.style.boxShadow = '';
+    });
+    document.querySelectorAll('.creature-bar.active').forEach(el => {
+      el.classList.remove('active');
+      const h = el.style.getPropertyValue('--bar-hue') || pitchHue(440);
+      el.style.background = `hsla(${h}, 70%, 55%, 0.22)`;
+      el.style.boxShadow = '';
+    });
+    playMarker.classList.remove('visible');
+    ghostMarker.classList.remove('visible');
+    shiftLink.classList.remove('visible');
+    liveScope.classList.remove('active');
+    liveScopeLabel.textContent = 'live output';
   }
 
   // ---------- Inline SVG icons ----------
@@ -917,6 +1066,127 @@
   function iconDolphin() {
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15s3-3 7-3 5 2 8 4c1.5 1 3 0 3 0s-2-3-4-4c-3-1.5-6-3-9-1.5S3 15 3 15z"/><path d="M12 9s-1-4-3-4 2 4 2 4z"/><path d="M15 16s-2 2-4 1"/></svg>';
   }
+
+  // ---------- Live visualization ----------
+  // Size the live-output canvas to its CSS box, accounting for devicePixelRatio.
+  let liveDpr = 1;
+  function resizeLiveCanvas() {
+    liveDpr = window.devicePixelRatio || 1;
+    const r = liveCanvas.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return;
+    liveCanvas.width = r.width * liveDpr;
+    liveCanvas.height = r.height * liveDpr;
+    lctx.setTransform(liveDpr, 0, 0, liveDpr, 0, 0);
+  }
+  window.addEventListener('resize', resizeLiveCanvas);
+  resizeLiveCanvas();
+
+  // A standing-trail used so the idle scope still reads as a calm flat line.
+  function drawIdleScope(w, h) {
+    lctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    lctx.lineWidth = 1;
+    lctx.beginPath();
+    lctx.moveTo(0, h / 2);
+    lctx.lineTo(w, h / 2);
+    lctx.stroke();
+  }
+
+  let frameCount = 0;
+  function renderLive() {
+    requestAnimationFrame(renderLive);
+    const r = liveCanvas.getBoundingClientRect();
+    const w = r.width, h = r.height;
+    if (w === 0 || h === 0) return;
+    // Lazily size the backing store if layout wasn't ready at init.
+    if (liveCanvas.width === 0 || Math.abs(liveCanvas.width - w * liveDpr) > 2) resizeLiveCanvas();
+
+    lctx.clearRect(0, 0, w, h);
+
+    const playing = !!(activeCreature && analyser);
+    if (!playing) { drawIdleScope(w, h); frameCount++; return; }
+
+    const c = activeCreature;
+    const accentHue = pitchHue(c.centerHz);
+    const level = readLevel();
+    const glow = Math.min(1, level * 6); // perceptual boost for typical RMS values
+
+    // --- 1. Live spectrum (filled bars, colored by bin frequency) ---
+    analyser.getByteFrequencyData(analyserFreq);
+    const bins = analyserFreq.length;
+    const nyquist = audioCtx.sampleRate / 2;
+    // Focus on the musically interesting lower portion of the spectrum.
+    const useBins = Math.floor(bins * 0.6);
+    const bw = w / useBins;
+    for (let i = 0; i < useBins; i++) {
+      const v = analyserFreq[i] / 255;
+      if (v < 0.01) continue;
+      const binHz = (i / bins) * nyquist;
+      const hue = pitchHue(Math.max(20, binHz));
+      const bh = v * h * 0.9;
+      const x = i * bw;
+      lctx.fillStyle = `hsla(${hue}, 80%, ${40 + v * 25}%, ${0.18 + v * 0.55})`;
+      lctx.fillRect(x, h - bh, Math.max(1, bw - 0.4), bh);
+    }
+
+    // --- 2. Live waveform on top, tinted to the creature's pitch color ---
+    analyser.getFloatTimeDomainData(analyserTime);
+    const N = analyserTime.length;
+    const stepX = w / N;
+    lctx.lineJoin = 'round';
+    lctx.lineCap = 'round';
+    // Glow pass (wide, dim) then core pass (thin, bright) — the Resonance look.
+    for (let pass = 0; pass < 2; pass++) {
+      lctx.beginPath();
+      for (let i = 0; i < N; i++) {
+        const x = i * stepX;
+        const y = h / 2 - analyserTime[i] * h * 0.45;
+        if (i === 0) lctx.moveTo(x, y); else lctx.lineTo(x, y);
+      }
+      if (pass === 0) {
+        lctx.strokeStyle = `hsla(${accentHue}, 90%, 60%, ${0.18 + glow * 0.22})`;
+        lctx.lineWidth = 5;
+        lctx.shadowBlur = reduceMotion ? 0 : 8 + glow * 14;
+        lctx.shadowColor = `hsla(${accentHue}, 90%, 60%, 0.8)`;
+      } else {
+        lctx.strokeStyle = `hsla(${accentHue}, 95%, ${68 + glow * 10}%, 0.95)`;
+        lctx.lineWidth = 1.4;
+        lctx.shadowBlur = 0;
+      }
+      lctx.stroke();
+    }
+    lctx.shadowBlur = 0;
+
+    // --- 3. Drive the tower's active bar glow from the live level ---
+    const activeBar = tower.querySelector('.creature-bar.active');
+    if (activeBar) {
+      const barHue = activeBar.style.getPropertyValue('--bar-hue') || accentHue;
+      const pulse = reduceMotion ? 0.6 : (0.55 + 0.45 * Math.sin(frameCount * 0.12));
+      const intensity = 0.4 + glow * 0.6;
+      activeBar.style.background = `hsla(${barHue}, 90%, ${55 + glow * 12}%, ${0.7 + glow * 0.3})`;
+      activeBar.style.boxShadow =
+        `0 0 ${10 + intensity * 22 * pulse}px hsla(${barHue}, 95%, 62%, ${0.5 + intensity * 0.4})`;
+    }
+
+    // --- 4. Pulse the markers + shift connector with the live level ---
+    if (!reduceMotion) {
+      const mp = 0.7 + 0.3 * Math.sin(frameCount * 0.18);
+      const spread = 8 + glow * 18 * mp;
+      playMarker.style.boxShadow = `0 0 ${spread}px ${c.accent}`;
+      shiftLink.style.opacity = String(0.55 + 0.45 * glow * mp);
+    }
+
+    // --- 5. Soft animated card glow that breathes with the live level ---
+    const activeCard = document.querySelector('.card.playing');
+    if (activeCard) {
+      const cardPulse = reduceMotion ? 1 : (0.85 + 0.15 * Math.sin(frameCount * 0.1));
+      const spr = (8 + glow * 26) * cardPulse;
+      activeCard.style.boxShadow =
+        `0 0 0 1px ${c.accent}, 0 8px ${spr}px -8px ${c.accent}, 0 0 ${spr}px -6px ${c.accent}`;
+    }
+
+    frameCount++;
+  }
+  requestAnimationFrame(renderLive);
 
   // ---------- Init ----------
   layoutAudibleBand();

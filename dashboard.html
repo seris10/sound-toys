@@ -3,18 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dashboard &mdash; the dashboard itself is a sound toy</title>
+<title>Resonance Dashboard &mdash; a live audiovisual console</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <style>
   :root {
-    --bg-1: #0a0f19;
-    --bg-2: #0e1424;
+    --bg-1: #070a12;
+    --bg-2: #0b1120;
     --ink: #e9edf7;
     --ink-2: #a4adc1;
-    --ink-3: #6b7388;
-    /* Accent gets re-painted live based on the focused subject. */
+    --ink-3: #69728a;
+    --panel: rgba(255,255,255,0.035);
+    --panel-line: rgba(255,255,255,0.08);
+    /* --accent gets repainted live from the dominant pitch in the spectrum. */
     --accent: 88, 166, 255;
-    --pad-mix: 0;
+    --level: 0;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
@@ -22,11 +24,8 @@
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     color: var(--ink);
     background:
-      radial-gradient(
-        circle at var(--mx, 50%) var(--my, 50%),
-        rgba(var(--accent), calc(0.10 + var(--pad-mix) * 0.18)) 0%,
-        transparent 55%
-      ),
+      radial-gradient(1200px 800px at 50% -10%, rgba(var(--accent), calc(0.10 + var(--level) * 0.14)), transparent 60%),
+      radial-gradient(900px 700px at 110% 120%, rgba(var(--accent), 0.05), transparent 55%),
       linear-gradient(180deg, var(--bg-2), var(--bg-1));
     overflow: hidden;
     user-select: none;
@@ -34,959 +33,1020 @@
     touch-action: manipulation;
   }
 
-  /* ----- Persistent shell ----- */
+  /* ---------- Background motes ---------- */
+  #motes { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+
+  /* ---------- Dashboard grid ---------- */
+  .console {
+    position: relative;
+    z-index: 1;
+    height: 100vh;
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) minmax(360px, 1.5fr) minmax(220px, 1fr);
+    grid-template-rows: auto 1fr 1fr auto;
+    grid-template-areas:
+      "top   top    top"
+      "osc   hero   meters"
+      "spec  hero   stats"
+      "pads  pads   pads";
+    gap: 12px;
+    padding: 12px;
+  }
+
+  /* ---------- Top bar ---------- */
   .topbar {
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    height: 56px;
-    display: flex;
-    align-items: center;
-    padding: 0 22px;
-    gap: 18px;
-    z-index: 30;
-    backdrop-filter: blur(12px);
-    background: rgba(10, 15, 25, 0.5);
-    border-bottom: 1px solid rgba(255,255,255,0.06);
-  }
-  .brand {
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    font-size: 0.95rem;
-    font-style: italic;
-    color: var(--ink);
-  }
-  .brand .glyph {
-    display: inline-block;
-    width: 10px; height: 10px;
-    border-radius: 50%;
-    margin-right: 8px;
-    background: radial-gradient(circle, rgba(var(--accent), 1), transparent 70%);
-    box-shadow: 0 0 12px rgba(var(--accent), 0.7);
-    transition: background 0.4s, box-shadow 0.4s;
-  }
-  .subj-tabs {
-    display: flex;
-    gap: 6px;
-    margin-left: 18px;
-    flex-wrap: nowrap;
-  }
-  .subj-tabs button {
-    background: none;
-    border: none;
-    color: var(--ink-2);
-    padding: 6px 10px;
-    border-radius: 999px;
-    font-size: 0.82rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-family: inherit;
-    transition: color 0.2s, background 0.2s;
-  }
-  .subj-tabs button:hover { color: var(--ink); background: rgba(255,255,255,0.06); }
-  .subj-tabs button.active { color: var(--ink); background: rgba(var(--accent), 0.15); }
-  .subj-tabs button .dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-  }
-  .lang {
-    margin-left: auto;
-    display: flex;
-    gap: 4px;
-    align-items: center;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 999px;
-    padding: 3px;
-  }
-  .lang button {
-    background: none;
-    border: none;
-    color: var(--ink-2);
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 0.75rem;
-    cursor: pointer;
-    font-family: inherit;
-    transition: background 0.15s, color 0.15s;
-  }
-  .lang button.active {
-    background: rgba(255,255,255,0.12);
-    color: var(--ink);
-  }
-  .audio-toggle {
-    background: rgba(var(--accent), 0.15);
-    border: 1px solid rgba(var(--accent), 0.3);
-    color: var(--ink);
-    padding: 6px 14px;
-    border-radius: 999px;
-    font-size: 0.78rem;
-    cursor: pointer;
-    font-family: inherit;
-    transition: background 0.2s;
-  }
-  .audio-toggle:hover { background: rgba(var(--accent), 0.25); }
-  .audio-toggle.on { background: rgba(var(--accent), 0.35); }
-
-  /* ----- Stage layout ----- */
-  .stage {
-    position: fixed;
-    top: 56px; left: 0; right: 0; bottom: 0;
-    overflow: hidden;
-  }
-  /* Background particles. */
-  .particles {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-  }
-
-  /* The orbit is a fixed-aspect circle; everything inside is positioned
-     relative to its center using polar coordinates encoded in CSS vars. */
-  .orbit {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    width: min(1100px, 96vw);
-    height: min(1100px, 96vw);
-    max-height: 96vh;
-    aspect-ratio: 1 / 1;
-    pointer-events: none;
-  }
-
-  /* ----- Subject wheel (center) ----- */
-  .wheel-wrap {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    width: 44%;
-    aspect-ratio: 1 / 1;
-    pointer-events: auto;
-  }
-  .wheel-svg {
-    width: 100%;
-    height: 100%;
-    display: block;
-    overflow: visible;
-    filter: drop-shadow(0 0 28px rgba(var(--accent), 0.25));
-    transition: filter 0.6s;
-  }
-  .wheel-rot {
-    transform-origin: 50% 50%;
-    transform-box: fill-box;
-    animation: wheel-rot 90s linear infinite;
-  }
-  @keyframes wheel-rot { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) {
-    .wheel-rot { animation: none; }
-  }
-  .sector {
-    cursor: pointer;
-    transition: transform 0.4s cubic-bezier(.2,.7,.3,1), filter 0.4s, opacity 0.3s;
-    transform-origin: 50% 50%;
-    transform-box: fill-box;
-  }
-  .sector:hover {
-    transform: scale(1.04);
-    filter: brightness(1.25);
-  }
-  .sector.active {
-    transform: scale(1.06);
-    filter: brightness(1.4) drop-shadow(0 0 12px currentColor);
-  }
-  .sector-label {
-    fill: rgba(255, 255, 255, 0.85);
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    pointer-events: none;
-    text-anchor: middle;
-    dominant-baseline: middle;
-  }
-  .hub {
-    fill: rgba(10, 15, 25, 0.92);
-    stroke: rgba(255,255,255,0.06);
-    stroke-width: 1;
-  }
-  .hub-content {
-    position: absolute;
-    left: 50%; top: 50%;
-    transform: translate(-50%, -50%);
-    text-align: center;
-    color: var(--ink);
-    pointer-events: none;
-    width: 60%;
-  }
-  .hub-content .label {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.16em;
-    color: var(--ink-3);
-    margin-bottom: 6px;
-  }
-  .hub-content .focus {
-    font-size: clamp(1.2rem, 2.5vw, 1.8rem);
-    font-weight: 700;
-    letter-spacing: -0.01em;
-    font-style: italic;
-    color: var(--ink);
-  }
-  .hub-content .focus-sub {
-    margin-top: 4px;
-    font-size: 0.8rem;
-    color: var(--ink-2);
-  }
-  /* Breathing ring around the hub. */
-  .breath-ring {
-    fill: none;
-    stroke: rgba(var(--accent), 0.5);
-    stroke-width: 1.5;
-    animation: breathe 5.5s ease-in-out infinite;
-  }
-  @keyframes breathe {
-    0%, 100% { transform: scale(1); opacity: 0.5; }
-    50% { transform: scale(1.08); opacity: 0.95; }
-  }
-  .breath-ring { transform-origin: 50% 50%; transform-box: fill-box; }
-
-  /* ----- Orbiting pods ----- */
-  .pod {
-    position: absolute;
-    pointer-events: auto;
-    /* --angle is set per pod in degrees, --rad in percent of the orbit radius. */
-    --angle: 0deg;
-    --rad: 44%;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%) rotate(var(--angle)) translateY(calc(var(--rad) * -1)) rotate(calc(var(--angle) * -1));
-    width: clamp(160px, 18vw, 240px);
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    backdrop-filter: blur(10px);
-    border-radius: 18px;
-    padding: 14px 16px;
-    color: var(--ink);
-    font-size: 0.78rem;
-    line-height: 1.45;
-    cursor: pointer;
-    transition: background 0.25s, border-color 0.25s, transform 0.5s cubic-bezier(.2,.7,.3,1), box-shadow 0.3s;
-    animation: pod-bob 9s ease-in-out infinite;
-  }
-  .pod:nth-child(odd)  { animation-delay: -3.0s; }
-  .pod:nth-child(even) { animation-delay: -6.0s; }
-  @keyframes pod-bob {
-    0%, 100% { margin-top: 0; }
-    50% { margin-top: -6px; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .pod { animation: none; margin-top: 0 !important; }
-  }
-  .pod:hover {
-    background: rgba(var(--accent), 0.10);
-    border-color: rgba(var(--accent), 0.35);
-    box-shadow: 0 12px 28px -16px rgba(var(--accent), 0.55);
-  }
-  .pod .ptitle {
-    font-size: 0.62rem;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-    color: var(--ink-3);
-    margin-bottom: 6px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .pod .ptitle .blip {
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: rgba(var(--accent), 1);
-    box-shadow: 0 0 6px rgba(var(--accent), 0.9);
-    animation: blink 2.6s ease-in-out infinite;
-  }
-  @keyframes blink {
-    0%, 100% { opacity: 0.3; }
-    50% { opacity: 1; }
-  }
-  .pod h3 {
-    font-size: 0.95rem;
-    font-weight: 700;
-    margin-bottom: 4px;
-    letter-spacing: -0.01em;
-  }
-  .pod p {
-    color: var(--ink-2);
-    font-size: 0.78rem;
-  }
-  .pod .meta {
-    margin-top: 8px;
-    display: flex;
-    gap: 8px;
-    font-size: 0.7rem;
-    color: var(--ink-3);
-  }
-  .pod .meta strong { color: var(--ink); font-variant-numeric: tabular-nums; }
-
-  /* Photo-drop pod is wider and has a dashed border. */
-  .pod.dropzone {
-    border-style: dashed;
-    border-color: rgba(255,255,255,0.18);
-  }
-  .pod.dropzone.over {
-    background: rgba(var(--accent), 0.16);
-    border-color: rgba(var(--accent), 0.6);
-  }
-  .pod.dropzone .drop-inner {
-    text-align: center;
-    padding: 6px 0;
-  }
-  .pod.dropzone .drop-icon {
-    width: 28px; height: 28px;
-    margin: 0 auto 6px;
-    border-radius: 50%;
-    background: rgba(var(--accent), 0.15);
-    border: 1px solid rgba(var(--accent), 0.35);
-    display: flex; align-items: center; justify-content: center;
-    color: rgba(var(--accent), 1);
-  }
-
-  /* ----- Coin gauge ----- */
-  .coin {
-    position: absolute;
-    left: 50%;
-    bottom: 18px;
-    transform: translateX(-50%);
-    z-index: 12;
+    grid-area: top;
     display: flex;
     align-items: center;
     gap: 14px;
-    background: rgba(10, 15, 25, 0.65);
+    padding: 10px 16px;
+    background: var(--panel);
+    border: 1px solid var(--panel-line);
+    border-radius: 14px;
     backdrop-filter: blur(10px);
-    border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 999px;
-    padding: 7px 16px 7px 8px;
-    font-size: 0.78rem;
-    color: var(--ink-2);
+    -webkit-backdrop-filter: blur(10px);
+    flex-wrap: wrap;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-weight: 700; letter-spacing: 0.02em; font-size: 0.98rem;
+  }
+  .brand .dot {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, rgba(var(--accent), 1), rgba(var(--accent), 0.2) 70%);
+    box-shadow: 0 0 12px rgba(var(--accent), 0.8), 0 0 26px rgba(var(--accent), 0.4);
+    transition: background 0.3s;
+  }
+  .brand small {
+    color: var(--ink-3); font-weight: 600; font-size: 0.66rem;
+    text-transform: uppercase; letter-spacing: 0.16em;
+  }
+  .seg {
+    display: inline-flex; background: rgba(255,255,255,0.05);
+    border: 1px solid var(--panel-line); border-radius: 999px; padding: 3px;
+  }
+  .seg button {
+    background: none; border: none; color: var(--ink-2);
+    padding: 6px 14px; border-radius: 999px; font-size: 0.78rem;
+    cursor: pointer; font-family: inherit; transition: background 0.2s, color 0.2s;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .seg button.active { background: rgba(var(--accent), 0.22); color: var(--ink); }
+  .seg button svg { width: 13px; height: 13px; }
+
+  .spacer { margin-left: auto; }
+  .ctl {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--ink-2); font-size: 0.78rem; font-variant-numeric: tabular-nums;
+  }
+  .ctl input[type="range"] {
+    -webkit-appearance: none; appearance: none; background: transparent;
+    width: 92px; height: 18px; cursor: pointer;
+  }
+  .ctl input[type="range"]::-webkit-slider-runnable-track,
+  .ctl input[type="range"]::-moz-range-track { height: 3px; background: rgba(255,255,255,0.14); border-radius: 2px; }
+  .ctl input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 13px; height: 13px; margin-top: -5px;
+    border-radius: 50%; background: rgb(var(--accent)); box-shadow: 0 0 8px rgba(var(--accent),0.8); cursor: pointer;
+  }
+  .ctl input[type="range"]::-moz-range-thumb {
+    width: 13px; height: 13px; border: none; border-radius: 50%;
+    background: rgb(var(--accent)); box-shadow: 0 0 8px rgba(var(--accent),0.8); cursor: pointer;
+  }
+  .power {
+    background: rgba(var(--accent), 0.16); border: 1px solid rgba(var(--accent), 0.4);
+    color: var(--ink); padding: 7px 16px; border-radius: 999px; font-size: 0.8rem;
+    cursor: pointer; font-family: inherit; font-weight: 600; transition: background 0.2s, box-shadow 0.2s;
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .power:hover { background: rgba(var(--accent), 0.28); }
+  .power.on { box-shadow: 0 0 18px -2px rgba(var(--accent), 0.6); }
+  .power .led {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3);
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+  .power.on .led { background: #4ade80; box-shadow: 0 0 10px #4ade80; }
+
+  /* ---------- Panels ---------- */
+  .panel {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--panel-line);
+    border-radius: 14px;
+    overflow: hidden;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    min-height: 0; min-width: 0;
+  }
+  .panel > canvas { display: block; width: 100%; height: 100%; }
+  .panel .ptag {
+    position: absolute; top: 9px; left: 12px; z-index: 2;
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--ink-3); font-weight: 700; pointer-events: none;
+  }
+  .panel .pval {
+    position: absolute; top: 8px; right: 12px; z-index: 2;
+    font-size: 0.72rem; color: var(--ink-2); font-variant-numeric: tabular-nums; pointer-events: none;
+  }
+
+  .osc { grid-area: osc; }
+  .spec { grid-area: spec; }
+  .meters { grid-area: meters; }
+  .stats { grid-area: stats; }
+
+  /* ---------- Hero radial ---------- */
+  .hero {
+    grid-area: hero;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 0; min-width: 0;
+  }
+  .hero canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .hero-core {
+    position: relative; z-index: 2; text-align: center; pointer-events: none;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+  }
+  .hero-core .note {
+    font-size: clamp(2.4rem, 6vw, 4.2rem); font-weight: 800; line-height: 1;
+    letter-spacing: -0.02em; color: var(--ink);
+    text-shadow: 0 0 30px rgba(var(--accent), 0.55);
     font-variant-numeric: tabular-nums;
   }
-  .coin .pip {
-    width: 22px; height: 22px;
-    border-radius: 50%;
-    background: radial-gradient(circle at 30% 25%, #fbbf24, #b45309 80%);
-    box-shadow: 0 0 14px rgba(251,191,36,0.4);
-    flex-shrink: 0;
-    animation: pip-spin 9s linear infinite;
+  .hero-core .hz { font-size: 0.95rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .hero-core .cap {
+    margin-top: 8px; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.18em;
+    color: var(--ink-3);
   }
-  @keyframes pip-spin { to { filter: hue-rotate(20deg); } }
-  .coin .bar {
-    width: 220px;
-    height: 4px;
-    background: rgba(255,255,255,0.08);
-    border-radius: 2px;
-    overflow: hidden;
-  }
-  .coin .fill {
-    height: 100%;
-    background: linear-gradient(90deg, rgba(var(--accent), 1), rgba(251,191,36,0.9));
-    transition: width 0.5s ease-out;
-  }
-  .coin strong { color: var(--ink); }
 
-  /* ----- Toast that appears on certain interactions ----- */
-  .toast-host {
-    position: fixed;
-    bottom: 60px;
-    left: 50%;
-    transform: translateX(-50%);
-    pointer-events: none;
-    z-index: 40;
+  /* ---------- Meters panel ---------- */
+  .meters-inner {
+    position: absolute; inset: 28px 14px 12px; display: flex; gap: 12px; align-items: flex-end;
   }
+  .band { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; }
+  .band .track {
+    position: relative; flex: 1; width: 100%; max-width: 46px; border-radius: 7px;
+    background: rgba(255,255,255,0.05); overflow: hidden;
+  }
+  .band .fill {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 0%;
+    border-radius: 7px 7px 0 0; transition: height 0.06s linear;
+  }
+  .band .peak {
+    position: absolute; left: 3px; right: 3px; height: 2px;
+    background: rgba(255,255,255,0.85); box-shadow: 0 0 6px rgba(255,255,255,0.6);
+  }
+  .band .blabel { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-3); }
+
+  /* ---------- Stats panel ---------- */
+  .stats-grid {
+    position: absolute; inset: 26px 12px 12px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  }
+  .stat {
+    background: rgba(255,255,255,0.04); border: 1px solid var(--panel-line);
+    border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; justify-content: center;
+  }
+  .stat .k { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-3); }
+  .stat .v { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .stat .v small { font-size: 0.62rem; color: var(--ink-3); font-weight: 600; margin-left: 2px; }
+
+  /* ---------- Play pads ---------- */
+  .pads {
+    grid-area: pads;
+    display: flex; gap: 8px; align-items: stretch;
+    padding: 10px; background: var(--panel); border: 1px solid var(--panel-line);
+    border-radius: 14px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  }
+  .pads .plabel {
+    align-self: center; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--ink-3); font-weight: 700; writing-mode: vertical-rl; transform: rotate(180deg);
+    padding: 0 2px;
+  }
+  .pad {
+    flex: 1; position: relative; border: 1px solid var(--panel-line);
+    border-radius: 10px; background: rgba(255,255,255,0.03); cursor: pointer;
+    min-height: 52px; overflow: hidden; transition: transform 0.08s, border-color 0.2s, background 0.2s;
+    display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px;
+  }
+  .pad .pn { font-size: 0.66rem; color: var(--ink-2); font-weight: 600; pointer-events: none; z-index: 2; }
+  .pad .glow {
+    position: absolute; inset: 0; opacity: 0; transition: opacity 0.4s;
+    background: radial-gradient(circle at 50% 120%, var(--pc, rgba(255,255,255,0.4)), transparent 70%);
+  }
+  .pad:hover { border-color: rgba(255,255,255,0.2); }
+  .pad.lit { transform: translateY(2px); }
+  .pad.lit .glow { opacity: 1; transition: opacity 0.04s; }
+
+  /* ---------- Start gate ---------- */
+  .gate {
+    position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 20px;
+    background: radial-gradient(900px 700px at 50% 40%, rgba(var(--accent), 0.12), transparent 60%), rgba(7, 10, 18, 0.92);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    text-align: center; padding: 24px; transition: opacity 0.5s;
+  }
+  .gate.hidden { opacity: 0; pointer-events: none; }
+  .gate h1 { font-size: clamp(1.8rem, 5vw, 3rem); font-weight: 800; letter-spacing: -0.02em; }
+  .gate h1 em { font-style: normal; color: rgb(var(--accent)); }
+  .gate p { color: var(--ink-2); max-width: 440px; line-height: 1.55; font-size: 0.95rem; }
+  .gate .go {
+    margin-top: 6px; background: rgba(var(--accent), 0.2); border: 1px solid rgba(var(--accent), 0.5);
+    color: var(--ink); padding: 14px 34px; border-radius: 999px; font-size: 1rem; font-weight: 700;
+    cursor: pointer; font-family: inherit; transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
+    box-shadow: 0 0 24px -4px rgba(var(--accent), 0.5);
+  }
+  .gate .go:hover { background: rgba(var(--accent), 0.3); transform: translateY(-1px); }
+  .gate .ring {
+    width: 96px; height: 96px; border-radius: 50%;
+    border: 2px solid rgba(var(--accent), 0.3); position: relative;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .gate .ring::before {
+    content: ''; position: absolute; inset: -2px; border-radius: 50%;
+    border: 2px solid transparent; border-top-color: rgb(var(--accent));
+    animation: spin 2.4s linear infinite;
+  }
+  .gate .ring svg { width: 34px; height: 34px; stroke: rgb(var(--accent)); fill: none; stroke-width: 1.6; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .gate .ring::before { animation: none; } }
+
+  .toast-host { position: fixed; bottom: 86px; left: 50%; transform: translateX(-50%); z-index: 40; pointer-events: none; }
   .toast {
-    background: rgba(10, 15, 25, 0.85);
-    border: 1px solid rgba(var(--accent), 0.4);
-    color: var(--ink);
-    padding: 10px 18px;
-    border-radius: 999px;
-    font-size: 0.85rem;
-    box-shadow: 0 18px 40px -22px rgba(var(--accent), 0.7);
-    opacity: 0;
-    transform: translateY(20px);
-    transition: opacity 0.3s, transform 0.3s;
+    background: rgba(10,15,25,0.9); border: 1px solid rgba(var(--accent),0.4); color: var(--ink);
+    padding: 9px 18px; border-radius: 999px; font-size: 0.82rem; opacity: 0; transform: translateY(12px);
+    transition: opacity 0.3s, transform 0.3s; box-shadow: 0 16px 36px -20px rgba(var(--accent),0.7);
   }
   .toast.show { opacity: 1; transform: translateY(0); }
 
-  /* Mobile: collapse pods into a stack below the wheel. */
-  @media (max-width: 720px) {
-    .orbit { width: 96vmin; height: 96vmin; }
-    .pod {
-      width: min(260px, 80vw);
-      --rad: 0%;
+  /* ---------- Responsive ---------- */
+  @media (max-width: 920px) {
+    .console {
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto 320px auto auto auto;
+      grid-template-areas:
+        "top   top"
+        "hero  hero"
+        "osc   meters"
+        "spec  stats"
+        "pads  pads";
+      height: auto; min-height: 100vh;
+      overflow-y: auto;
     }
-    .pod.collapse-mobile { display: none; }
+    body { overflow-y: auto; }
+    .spacer { margin-left: 0; }
+  }
+  @media (max-width: 560px) {
+    .console { grid-template-columns: 1fr; grid-template-areas: "top" "hero" "osc" "meters" "spec" "stats" "pads"; }
+    .osc, .spec, .meters, .stats { min-height: 150px; }
+    .pads .plabel { display: none; }
   }
 </style>
 </head>
 <body>
 
-<nav class="topbar">
-  <span class="brand"><span class="glyph"></span>Resonant Hub</span>
-  <div class="subj-tabs" id="subjTabs"></div>
-  <div class="lang">
-    <button data-lang="en" class="active">EN</button>
-    <button data-lang="es">ES</button>
-    <button data-lang="bi">EN+ES</button>
-  </div>
-  <button class="audio-toggle" id="audioToggle">Sound off</button>
-</nav>
+<canvas id="motes"></canvas>
 
-<div class="stage" id="stage">
-  <canvas class="particles" id="particles"></canvas>
-
-  <div class="orbit" id="orbit">
-    <div class="wheel-wrap">
-      <svg class="wheel-svg" viewBox="-100 -100 200 200" id="wheelSvg">
-        <g class="wheel-rot" id="wheelRot"></g>
-        <circle class="breath-ring" cx="0" cy="0" r="58" />
-        <circle class="hub" cx="0" cy="0" r="55" />
-        <circle class="breath-ring" cx="0" cy="0" r="49" style="animation-delay: -1.5s; opacity: 0.4;" />
-      </svg>
-      <div class="hub-content">
-        <div class="label" id="hubLabel">Today's focus</div>
-        <div class="focus" id="hubFocus">Mathematics</div>
-        <div class="focus-sub" id="hubSub">Lesson 29 &middot; Multiplication</div>
+<div class="console" id="console">
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <span>Resonance <small>Live Console</small></span>
+    </div>
+    <div class="seg" id="sourceSeg">
+      <button data-src="generative" class="active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        Generative
+      </button>
+      <button data-src="mic">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4"/></svg>
+        Microphone
+      </button>
+    </div>
+    <div class="ctl" id="moodCtl">
+      <span>Mood</span>
+      <div class="seg" id="moodSeg">
+        <button data-mood="calm" class="active">Calm</button>
+        <button data-mood="bright">Bright</button>
+        <button data-mood="deep">Deep</button>
       </div>
     </div>
-    <!-- Pods get inserted here from JS -->
+    <div class="spacer"></div>
+    <div class="ctl"><span>Volume</span><input type="range" id="vol" min="0" max="100" value="62"></div>
+    <button class="power" id="power"><span class="led"></span><span id="powerLabel">Sound on</span></button>
   </div>
 
-  <div class="coin" id="coin">
-    <span class="pip"></span>
-    <span><strong id="coinCount">0</strong> coins</span>
-    <div class="bar"><div class="fill" id="coinFill" style="width: 12%"></div></div>
-    <span><span id="coinTimer">4:43</span> until next</span>
+  <!-- Oscilloscope -->
+  <div class="panel osc">
+    <span class="ptag">Waveform</span>
+    <span class="pval" id="oscVal">&mdash;</span>
+    <canvas id="oscCv"></canvas>
+  </div>
+
+  <!-- Hero radial spectrum -->
+  <div class="hero">
+    <canvas id="heroCv"></canvas>
+    <div class="hero-core">
+      <div class="note" id="coreNote">&mdash;</div>
+      <div class="hz" id="coreHz">listening</div>
+      <div class="cap">Dominant pitch</div>
+    </div>
+  </div>
+
+  <!-- Band meters -->
+  <div class="panel meters">
+    <span class="ptag">Levels</span>
+    <span class="pval" id="rmsVal">&mdash;</span>
+    <div class="meters-inner">
+      <div class="band"><div class="track"><div class="fill" id="bassFill"></div><div class="peak" id="bassPeak"></div></div><span class="blabel">Bass</span></div>
+      <div class="band"><div class="track"><div class="fill" id="midFill"></div><div class="peak" id="midPeak"></div></div><span class="blabel">Mid</span></div>
+      <div class="band"><div class="track"><div class="fill" id="trebFill"></div><div class="peak" id="trebPeak"></div></div><span class="blabel">Treble</span></div>
+    </div>
+  </div>
+
+  <!-- Spectrogram -->
+  <div class="panel spec">
+    <span class="ptag">Spectrogram</span>
+    <span class="pval">log Hz &uarr;</span>
+    <canvas id="specCv"></canvas>
+  </div>
+
+  <!-- Stats -->
+  <div class="panel stats">
+    <span class="ptag">Telemetry</span>
+    <div class="stats-grid">
+      <div class="stat"><span class="k">Peak</span><span class="v" id="stPeak">&mdash;<small>Hz</small></span></div>
+      <div class="stat"><span class="k">Centroid</span><span class="v" id="stCentroid">&mdash;<small>Hz</small></span></div>
+      <div class="stat"><span class="k">Loudness</span><span class="v" id="stRms">&mdash;<small>dB</small></span></div>
+      <div class="stat"><span class="k">Crest</span><span class="v" id="stCrest">&mdash;<small>dB</small></span></div>
+    </div>
+  </div>
+
+  <!-- Play pads -->
+  <div class="pads" id="pads">
+    <span class="plabel">Play</span>
+    <!-- pads injected by JS -->
   </div>
 </div>
 
-<div class="toast-host"><div class="toast" id="toast">Hello</div></div>
+<div class="gate" id="gate">
+  <div class="ring"><svg viewBox="0 0 24 24"><path d="M3 12h3l3-8 6 16 3-8h3"/></svg></div>
+  <h1>Resonance <em>Live Console</em></h1>
+  <p>A dashboard that is itself a sound toy. A generative engine sings while a real spectrum analyser paints every panel &mdash; colour mapped to pitch. Switch to your microphone, or play the pads along the bottom.</p>
+  <button class="go" id="gateGo">Tap to start</button>
+</div>
+
+<div class="toast-host"><div class="toast" id="toast">.</div></div>
 
 <script>
 (() => {
-  // ====== Subject palette ======
-  // Each subject:  display name (en/es/bi), accent rgb, chord (Hz freqs).
-  const SUBJECTS = [
-    { id: 'math', en: 'Mathematics',   es: 'Matemáticas',   accent: '88, 166, 255',
-      chord: [146.83, 220.00, 293.66, 440.00, 587.33], // D minor 9
-      sub: { en: 'Lesson 29 · Multiplication', es: 'Lección 29 · Multiplicación' } },
-    { id: 'sci',  en: 'Science',       es: 'Ciencias',      accent: '34, 211, 238',
-      chord: [261.63, 329.63, 392.00, 493.88],         // C major 7
-      sub: { en: 'Pulse & heart rate', es: 'Pulso y ritmo cardíaco' } },
-    { id: 'ela',  en: 'Reading',       es: 'Lectura',       accent: '74, 222, 128',
-      chord: [196.00, 246.94, 293.66, 392.00],         // G major
-      sub: { en: 'Pied Piper · Lesson 20', es: 'El flautista · Lección 20' } },
-    { id: 'soc',  en: 'Social Studies', es: 'Sociales',     accent: '167, 139, 250',
-      chord: [220.00, 261.63, 329.63, 440.00],         // A dorian-ish
-      sub: { en: 'Mapping the neighborhood', es: 'Mapeando el barrio' } },
-    { id: 'exp',  en: 'Explore',       es: 'Explorar',      accent: '132, 204, 22',
-      chord: [261.63, 293.66, 329.63, 392.00, 440.00], // C pentatonic
-      sub: { en: 'Free play · 20 min', es: 'Juego libre · 20 min' } },
-    { id: 'data', en: 'Data',          es: 'Datos',         accent: '251, 191, 36',
-      chord: [392.00, 587.33, 783.99],                  // perc blip stack
-      sub: { en: 'Today’s patterns', es: 'Patrones de hoy' } },
-  ];
+  'use strict';
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // ====== State ======
-  let lang = 'en';
-  let audioOn = false;
-  let activeSubject = SUBJECTS[0]; // today's focus
-
-  const stage = document.getElementById('stage');
-  const subjTabs = document.getElementById('subjTabs');
-  const audioToggle = document.getElementById('audioToggle');
-  const orbit = document.getElementById('orbit');
-  const wheelRot = document.getElementById('wheelRot');
-  const wheelSvg = document.getElementById('wheelSvg');
-  const hubLabel = document.getElementById('hubLabel');
-  const hubFocus = document.getElementById('hubFocus');
-  const hubSub = document.getElementById('hubSub');
-  const coinCount = document.getElementById('coinCount');
-  const coinFill = document.getElementById('coinFill');
-  const coinTimer = document.getElementById('coinTimer');
-  const toast = document.getElementById('toast');
-  const particles = document.getElementById('particles');
-  const pctx = particles.getContext('2d');
-
-  // ====== Wheel SVG generation ======
-  // Six sectors, evenly spaced.
-  function arcPath(rIn, rOut, a0, a1) {
-    const toXY = (a, r) => [Math.sin(a) * r, -Math.cos(a) * r];
-    const [x0, y0] = toXY(a0, rOut);
-    const [x1, y1] = toXY(a1, rOut);
-    const [x2, y2] = toXY(a1, rIn);
-    const [x3, y3] = toXY(a0, rIn);
-    const large = (a1 - a0) > Math.PI ? 1 : 0;
-    return `M ${x0} ${y0} A ${rOut} ${rOut} 0 ${large} 1 ${x1} ${y1} L ${x2} ${y2} A ${rIn} ${rIn} 0 ${large} 0 ${x3} ${y3} Z`;
+  // ===================================================================
+  //  Sound -> colour engine (shared with the other toys)
+  //  hue = pitch class (360 deg per octave); saturation rises with
+  //  register + loudness; lightness rises with loudness. The flagship
+  //  "Resonance" toy uses the same idea, and it matches pitch-class
+  //  synesthesia research (C ~ red, ascending through the rainbow).
+  // ===================================================================
+  const ANCHOR = 65.41; // C2 -> hue 0
+  function pitchHue(freq) {
+    return ((Math.log2(Math.max(1e-6, freq) / ANCHOR) % 1) * 360 + 360) % 360;
   }
-  function midPoint(rIn, rOut, a0, a1) {
-    const r = (rIn + rOut) / 2;
-    const a = (a0 + a1) / 2;
-    return [Math.sin(a) * r, -Math.cos(a) * r];
+  function pitchColor(freq, amp = 1, alpha = 1) {
+    const octavePos = Math.log2(Math.max(1e-6, freq) / ANCHOR);
+    const hue = ((octavePos % 1) * 360 + 360) % 360;
+    const octave = Math.max(0, Math.min(5, octavePos));
+    const sat = Math.min(100, 55 + octave * 6 + amp * 25);
+    const light = 38 + amp * 24;
+    return alpha >= 1 ? `hsl(${hue}, ${sat}%, ${light}%)` : `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`;
   }
-  function buildWheel() {
-    const rIn = 60, rOut = 95;
-    const n = SUBJECTS.length;
-    for (let i = 0; i < n; i++) {
-      const a0 = (i / n) * Math.PI * 2;
-      const a1 = ((i + 1) / n) * Math.PI * 2;
-      const subj = SUBJECTS[i];
-      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      path.setAttribute('d', arcPath(rIn, rOut, a0, a1));
-      path.setAttribute('class', 'sector');
-      path.setAttribute('fill', `rgba(${subj.accent}, 0.78)`);
-      path.style.color = `rgb(${subj.accent})`;
-      path.dataset.id = subj.id;
-      path.addEventListener('mouseenter', () => focusSubject(subj, false));
-      path.addEventListener('click', () => focusSubject(subj, true));
-      wheelRot.appendChild(path);
-      // Label.
-      const [mx, my] = midPoint(rIn, rOut, a0, a1);
-      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      text.setAttribute('class', 'sector-label');
-      text.setAttribute('x', mx);
-      text.setAttribute('y', my);
-      text.textContent = subj.en; // re-rendered on language change below
-      text.dataset.id = subj.id;
-      wheelRot.appendChild(text);
+  // Convert an hsl triple to "r, g, b" for our CSS --accent variable.
+  function hslToRgbStr(h, s, l) {
+    s /= 100; l /= 100;
+    const k = n => (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    return `${Math.round(255 * f(0))}, ${Math.round(255 * f(8))}, ${Math.round(255 * f(4))}`;
+  }
+  const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  function noteName(hz) {
+    if (!(hz > 0)) return { name: '—', oct: '' };
+    const s = Math.round(12 * Math.log2(hz / 16.3516));
+    return { name: NOTE_NAMES[((s % 12) + 12) % 12], oct: Math.floor(s / 12) };
+  }
+
+  // ===================================================================
+  //  Audio engine
+  // ===================================================================
+  let actx = null, master = null, analyser = null, reverb = null, reverbGain = null;
+  let micStream = null, micNode = null;
+  let started = false, audioOn = false;
+  let source = 'generative';
+  let mood = 'calm';
+  let freqData = null, timeData = null;
+
+  // Scales & moods. Each mood picks a scale, a register and a tempo feel.
+  const SCALES = {
+    calm:   { root: 146.83, steps: [0, 2, 3, 5, 7, 8, 10, 12], octs: [0, 1], tempo: 0.46, wave: 'sine',     pad: [0, 3, 7, 10] },   // D dorian-ish
+    bright: { root: 261.63, steps: [0, 2, 4, 7, 9, 12, 14],     octs: [0, 1], tempo: 0.62, wave: 'triangle', pad: [0, 4, 7, 11] },   // C major pent+
+    deep:   { root: 98.00,  steps: [0, 3, 5, 7, 10, 12],        octs: [0, 1], tempo: 0.34, wave: 'sawtooth', pad: [0, 7, 10, 14] },  // G minor low
+  };
+
+  function makeReverb(ctx, seconds = 2.4, decay = 2.6) {
+    const rate = ctx.sampleRate;
+    const len = Math.floor(rate * seconds);
+    const buf = ctx.createBuffer(2, len, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < len; i++) {
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+      }
+    }
+    const conv = ctx.createConvolver();
+    conv.buffer = buf;
+    return conv;
+  }
+
+  function ensureAudio() {
+    if (actx) return;
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    master = actx.createGain();
+    master.gain.value = parseFloat(vol.value) / 100;
+
+    const comp = actx.createDynamicsCompressor();
+    comp.threshold.value = -18; comp.knee.value = 24; comp.ratio.value = 3;
+    comp.attack.value = 0.004; comp.release.value = 0.18;
+
+    reverb = makeReverb(actx);
+    reverbGain = actx.createGain();
+    reverbGain.gain.value = 0.32;
+
+    analyser = actx.createAnalyser();
+    analyser.fftSize = 4096;
+    analyser.smoothingTimeConstant = 0.78;
+    freqData = new Uint8Array(analyser.frequencyBinCount);
+    timeData = new Uint8Array(analyser.fftSize);
+
+    // voices -> master -> comp -> destination + analyser; a reverb send too.
+    master.connect(comp);
+    master.connect(reverb); reverb.connect(reverbGain); reverbGain.connect(comp);
+    comp.connect(actx.destination);
+    comp.connect(analyser);
+  }
+
+  // ---- One-shot synth voice (arp / pad / pluck / pad chords) ----
+  function voice(freq, t0, dur, type, gainPeak, opts = {}) {
+    const o = actx.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t0);
+    if (opts.glide) o.frequency.exponentialRampToValueAtTime(freq, t0 + 0.04);
+    const g = actx.createGain();
+    const atk = opts.atk ?? 0.01, rel = opts.rel ?? 0.4;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gainPeak, t0 + atk);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    let node = o;
+    if (opts.lp) {
+      const lp = actx.createBiquadFilter(); lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(opts.lp, t0);
+      if (opts.lpEnv) { lp.frequency.exponentialRampToValueAtTime(Math.max(120, opts.lp * 0.3), t0 + dur); }
+      o.connect(lp); lp.connect(g);
+    } else {
+      o.connect(g);
+    }
+    g.connect(master);
+    o.start(t0); o.stop(t0 + dur + 0.05);
+  }
+
+  // Soft percussion to give the generative engine a pulse.
+  function tick(t0, hi) {
+    const len = hi ? 0.04 : 0.18;
+    const buf = actx.createBuffer(1, Math.floor(actx.sampleRate * len), actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) {
+      const e = Math.pow(1 - i / d.length, hi ? 3 : 2);
+      d[i] = (Math.random() * 2 - 1) * e;
+    }
+    const s = actx.createBufferSource(); s.buffer = buf;
+    const f = actx.createBiquadFilter();
+    f.type = hi ? 'highpass' : 'lowpass'; f.frequency.value = hi ? 6000 : 220;
+    const g = actx.createGain(); g.gain.value = hi ? 0.08 : 0.22;
+    s.connect(f); f.connect(g); g.connect(master);
+    s.start(t0);
+  }
+
+  // ---- Generative scheduler (look-ahead) ----
+  let schedTimer = null, nextNoteTime = 0, step = 0, padTimer = null;
+  function startGenerative() {
+    if (!actx) return;
+    stopGenerative();
+    nextNoteTime = actx.currentTime + 0.1;
+    step = 0;
+    schedTimer = setInterval(scheduleAhead, 25);
+    schedulePad();
+    padTimer = setInterval(schedulePad, 8000);
+  }
+  function stopGenerative() {
+    if (schedTimer) { clearInterval(schedTimer); schedTimer = null; }
+    if (padTimer) { clearInterval(padTimer); padTimer = null; }
+  }
+  function scheduleAhead() {
+    if (!audioOn || source !== 'generative') return;
+    const sc = SCALES[mood];
+    const beat = sc.tempo; // seconds per step
+    while (nextNoteTime < actx.currentTime + 0.2) {
+      // Arp: walk the scale, occasionally leap, with gentle probability rests.
+      if (Math.random() > 0.22) {
+        const oct = sc.octs[Math.floor(Math.random() * sc.octs.length)] + 1;
+        const deg = sc.steps[Math.floor(Math.random() * sc.steps.length)];
+        const f = sc.root * Math.pow(2, oct + deg / 12);
+        voice(f, nextNoteTime, 0.5 + Math.random() * 0.4, sc.wave, 0.16,
+              { atk: 0.006, rel: 0.5, lp: 2600, lpEnv: true });
+      }
+      // Pulse: soft low tick on the down-step, hat on the off.
+      if (step % 4 === 0) tick(nextNoteTime, false);
+      else if (step % 2 === 1) tick(nextNoteTime, true);
+      // Occasional low bass root.
+      if (step % 8 === 0) {
+        voice(sc.root, nextNoteTime, 1.6, 'sine', 0.22, { atk: 0.02, rel: 1.6, lp: 600 });
+      }
+      nextNoteTime += beat;
+      step++;
     }
   }
-  buildWheel();
-
-  // ====== Top-bar subject tabs ======
-  function buildTabs() {
-    subjTabs.innerHTML = '';
-    SUBJECTS.forEach(s => {
-      const b = document.createElement('button');
-      b.dataset.id = s.id;
-      b.innerHTML = `<span class="dot" style="background: rgb(${s.accent})"></span>${labelFor(s)}`;
-      b.addEventListener('mouseenter', () => focusSubject(s, false));
-      b.addEventListener('click', () => focusSubject(s, true));
-      subjTabs.appendChild(b);
+  function schedulePad() {
+    if (!audioOn || !actx || source !== 'generative') return;
+    const sc = SCALES[mood];
+    const t0 = actx.currentTime + 0.05;
+    const dur = 8.4;
+    sc.pad.forEach((semi, i) => {
+      const f = sc.root * Math.pow(2, 1 + semi / 12);
+      voice(f * (i === 0 ? 0.5 : 1), t0, dur, 'sine', 0.05,
+            { atk: 1.4, rel: dur, lp: 1800 });
     });
   }
-  buildTabs();
 
-  function labelFor(s) {
-    if (lang === 'en') return s.en;
-    if (lang === 'es') return s.es;
-    return `${s.en} · ${s.es}`;
+  // ---- Pads (user-played) ----
+  const PAD_SCALE = [0, 2, 4, 7, 9, 12, 14, 16]; // 2-octave major pentatonic-ish
+  function playPad(semi, padEl) {
+    if (!started) return;
+    if (actx.state === 'suspended') actx.resume();
+    const base = SCALES[mood].root;
+    const f = base * Math.pow(2, 1 + semi / 12);
+    const t0 = actx.currentTime;
+    voice(f, t0, 1.1, 'triangle', 0.2, { atk: 0.005, rel: 1.0, lp: 3200, lpEnv: true });
+    voice(f * 1.5, t0, 0.9, 'sine', 0.06, { atk: 0.01, rel: 0.8 });
+    if (padEl) {
+      padEl.style.setProperty('--pc', pitchColor(f, 0.9, 0.85));
+      padEl.classList.add('lit');
+      setTimeout(() => padEl.classList.remove('lit'), 260);
+    }
   }
 
-  // ====== Language switcher ======
-  document.querySelectorAll('.lang button').forEach(b => {
+  // ---- Microphone ----
+  async function enableMic() {
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false } });
+      micNode = actx.createMediaStreamSource(micStream);
+      micNode.connect(analyser); // analyse only, never to destination (no feedback)
+      showToast('Microphone live — whistle, sing, snap');
+    } catch (e) {
+      showToast('Microphone unavailable: ' + (e.message || e.name));
+      setSource('generative');
+      sourceSeg.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.src === 'generative'));
+    }
+  }
+  function disableMic() {
+    if (micNode) { try { micNode.disconnect(); } catch (e) {} micNode = null; }
+    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  }
+
+  function setSource(src) {
+    source = src;
+    if (src === 'mic') {
+      stopGenerative();
+      master.gain.setTargetAtTime(0.0001, actx.currentTime, 0.1);
+      enableMic();
+    } else {
+      disableMic();
+      master.gain.setTargetAtTime(parseFloat(vol.value) / 100, actx.currentTime, 0.1);
+      startGenerative();
+    }
+  }
+
+  // ===================================================================
+  //  DOM
+  // ===================================================================
+  const gate = document.getElementById('gate');
+  const gateGo = document.getElementById('gateGo');
+  const power = document.getElementById('power');
+  const powerLabel = document.getElementById('powerLabel');
+  const vol = document.getElementById('vol');
+  const sourceSeg = document.getElementById('sourceSeg');
+  const moodSeg = document.getElementById('moodSeg');
+  const toast = document.getElementById('toast');
+  const padsEl = document.getElementById('pads');
+
+  // Build pads.
+  const padEls = [];
+  PAD_SCALE.forEach((semi, i) => {
+    const f = SCALES[mood].root * Math.pow(2, 1 + semi / 12);
+    const n = noteName(f);
+    const el = document.createElement('div');
+    el.className = 'pad';
+    el.innerHTML = `<div class="glow"></div><span class="pn">${n.name}${n.oct}</span>`;
+    el.style.setProperty('--pc', pitchColor(f, 0.7, 0.6));
+    el.addEventListener('pointerdown', (e) => { e.preventDefault(); playPad(semi, el); });
+    padsEl.appendChild(el);
+    padEls.push({ el, semi });
+  });
+  function relabelPads() {
+    padEls.forEach(({ el, semi }) => {
+      const f = SCALES[mood].root * Math.pow(2, 1 + semi / 12);
+      const n = noteName(f);
+      el.querySelector('.pn').textContent = `${n.name}${n.oct}`;
+      el.style.setProperty('--pc', pitchColor(f, 0.7, 0.6));
+    });
+  }
+
+  // Keyboard play: z s x d c v g b ...
+  const KEYMAP = { 'z':0,'x':1,'c':2,'v':3,'b':4,'n':5,'m':6,',':7 };
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    const idx = KEYMAP[e.key];
+    if (idx != null && padEls[idx]) playPad(padEls[idx].semi, padEls[idx].el);
+  });
+
+  function start() {
+    if (started) return;
+    ensureAudio();
+    if (actx.state === 'suspended') actx.resume();
+    started = true; audioOn = true;
+    power.classList.add('on');
+    powerLabel.textContent = 'Sound on';
+    gate.classList.add('hidden');
+    setSource(source);
+  }
+  gateGo.addEventListener('click', start);
+  gate.addEventListener('click', (e) => { if (e.target === gate) start(); });
+
+  power.addEventListener('click', () => {
+    if (!started) { start(); return; }
+    audioOn = !audioOn;
+    power.classList.toggle('on', audioOn);
+    powerLabel.textContent = audioOn ? 'Sound on' : 'Muted';
+    if (audioOn) {
+      actx.resume();
+      master.gain.setTargetAtTime(source === 'mic' ? 0.0001 : parseFloat(vol.value) / 100, actx.currentTime, 0.1);
+      if (source === 'generative') startGenerative();
+    } else {
+      master.gain.setTargetAtTime(0.0001, actx.currentTime, 0.1);
+      stopGenerative();
+    }
+  });
+
+  vol.addEventListener('input', () => {
+    if (master && source !== 'mic' && audioOn) master.gain.setTargetAtTime(parseFloat(vol.value) / 100, actx.currentTime, 0.05);
+  });
+
+  sourceSeg.querySelectorAll('button').forEach(b => {
     b.addEventListener('click', () => {
-      document.querySelectorAll('.lang button').forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-      lang = b.dataset.lang;
-      paintLanguage();
-      blip(660, 0.04, 'sine');
+      if (!started) start();
+      sourceSeg.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+      setSource(b.dataset.src);
     });
   });
-  function paintLanguage() {
-    // Topbar tabs.
-    subjTabs.querySelectorAll('button').forEach(b => {
-      const s = SUBJECTS.find(x => x.id === b.dataset.id);
-      b.innerHTML = `<span class="dot" style="background: rgb(${s.accent})"></span>${labelFor(s)}`;
-      b.classList.toggle('active', s.id === activeSubject.id);
+  moodSeg.querySelectorAll('button').forEach(b => {
+    b.addEventListener('click', () => {
+      moodSeg.querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+      mood = b.dataset.mood;
+      relabelPads();
+      if (started && audioOn && source === 'generative') { stopGenerative(); startGenerative(); }
+      showToast('Mood: ' + b.dataset.mood);
     });
-    // Wheel labels.
-    wheelRot.querySelectorAll('text').forEach(t => {
-      const s = SUBJECTS.find(x => x.id === t.dataset.id);
-      t.textContent = lang === 'bi' ? s.en : (lang === 'es' ? s.es : s.en);
-    });
-    // Hub focus.
-    hubFocus.textContent = labelFor(activeSubject);
-    hubSub.textContent = lang === 'es' ? activeSubject.sub.es : activeSubject.sub.en;
-    hubLabel.textContent = lang === 'es' ? 'Enfoque de hoy' : "Today's focus";
-    // Pods.
-    renderPods();
-  }
+  });
 
-  // ====== Focus / accent management ======
-  function focusSubject(s, sticky) {
-    const changed = s.id !== activeSubject.id;
-    if (sticky) activeSubject = s;
-    // Always update accent on hover so the page color tracks the cursor.
-    document.documentElement.style.setProperty('--accent', s.accent);
-
-    // Update active visuals.
-    wheelRot.querySelectorAll('.sector').forEach(p =>
-      p.classList.toggle('active', sticky && p.dataset.id === s.id));
-    subjTabs.querySelectorAll('button').forEach(b =>
-      b.classList.toggle('active', b.dataset.id === activeSubject.id));
-
-    if (sticky) {
-      hubFocus.textContent = labelFor(s);
-      hubSub.textContent = lang === 'es' ? s.sub.es : s.sub.en;
-      renderPods(); // some pod copy is subject-aware
-      showToast(lang === 'es' ? `Cambiado a ${s.es}` : `Switched to ${s.en}`);
-    }
-
-    if (audioOn && changed) playChord(s);
-  }
-
-  // ====== Pods ======
-  // Each pod orbits the hub at a polar angle. We re-render content on focus
-  // / language change but keep DOM nodes stable for transitions.
-  const POD_DEFS = [
-    {
-      angle: 0,      rad: 38,
-      kind: 'parent',
-      title: { en: 'Parent note · today', es: 'Nota familiar · hoy' },
-      body: {
-        en: ['Hello,', ' today’s session focuses on times tables and a short reading. Photos welcome.'],
-        es: ['Hola,', ' la sesión de hoy es tablas y una lectura breve. Las fotos son bienvenidas.'],
-      },
-      collapseMobile: false,
-    },
-    {
-      angle: 60,    rad: 40,
-      kind: 'task',
-      titleSubject: true, // title shows current subject
-      body: {
-        en: 'Worksheet, 12 problems · est. 11 min',
-        es: 'Hoja, 12 problemas · est. 11 min',
-      },
-      collapseMobile: false,
-    },
-    {
-      angle: 120,    rad: 40,
-      kind: 'submit',
-      title: { en: 'Recent submissions', es: 'Envíos recientes' },
-      body: {
-        en: '<strong>3</strong> photos, <strong>1</strong> form · last 24h',
-        es: '<strong>3</strong> fotos, <strong>1</strong> formulario · últimas 24h',
-      },
-      collapseMobile: true,
-    },
-    {
-      angle: 180,    rad: 36,
-      kind: 'strategy',
-      title: { en: 'Strategy of the week', es: 'Estrategia de la semana' },
-      body: {
-        en: 'Quiet starts &middot; one timer, one breath, one page.',
-        es: 'Comienzos tranquilos &middot; un temporizador, una respiración, una página.',
-      },
-      collapseMobile: false,
-    },
-    {
-      angle: 240,    rad: 40,
-      kind: 'priority',
-      title: { en: 'Priority queue', es: 'Cola de prioridades' },
-      body: {
-        en: 'Aeries forms · last email reply · Friday packet',
-        es: 'Formularios Aeries · responder correo · paquete del viernes',
-      },
-      collapseMobile: true,
-    },
-    {
-      angle: 300,    rad: 40,
-      kind: 'photo',
-      title: { en: 'Drop a photo', es: 'Suelta una foto' },
-      body: {
-        en: 'JPEG / PNG / HEIC · sounds when received',
-        es: 'JPEG / PNG / HEIC · suena al recibirla',
-      },
-      collapseMobile: false,
-    },
-  ];
-
-  let podEls = [];
-  function renderPods() {
-    podEls.forEach(e => e.remove());
-    podEls = [];
-    POD_DEFS.forEach(def => {
-      const el = document.createElement('div');
-      el.className = 'pod' + (def.kind === 'photo' ? ' dropzone' : '') + (def.collapseMobile ? ' collapse-mobile' : '');
-      el.style.setProperty('--angle', def.angle + 'deg');
-      el.style.setProperty('--rad', def.rad + '%');
-      const title = def.titleSubject
-        ? (lang === 'es' ? `Tarea · ${activeSubject.es}` : `Task · ${activeSubject.en}`)
-        : def.title[lang === 'bi' ? 'en' : lang];
-      let bodyHtml;
-      if (def.kind === 'parent') {
-        const t = def.body[lang === 'bi' ? 'en' : lang];
-        bodyHtml = `<h3>${t[0]}</h3><p>${t[1]}</p>`;
-      } else if (def.kind === 'photo') {
-        const t = def.body[lang === 'bi' ? 'en' : lang];
-        bodyHtml = `
-          <div class="drop-inner">
-            <div class="drop-icon">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12l7-7 7 7"/></svg>
-            </div>
-            <h3>${lang === 'es' ? 'Soltar foto' : 'Drop or tap'}</h3>
-            <p>${t}</p>
-          </div>`;
-      } else {
-        bodyHtml = `<p>${def.body[lang === 'bi' ? 'en' : lang]}</p>`;
-      }
-      el.innerHTML = `
-        <div class="ptitle"><span class="blip"></span><span>${title}</span></div>
-        ${bodyHtml}
-      `;
-      orbit.appendChild(el);
-      podEls.push(el);
-
-      // Interactions: hover = soft tone, click = chord stab, scoped to current subject.
-      el.addEventListener('mouseenter', () => { if (audioOn) blip(440 + def.angle, 0.025, 'sine'); });
-      el.addEventListener('click', () => {
-        if (def.kind === 'photo') {
-          fakeReceive();
-        } else {
-          earnCoins(1);
-          if (audioOn) playChord(activeSubject, 0.25);
-          showToast(def.kind === 'parent'
-            ? (lang === 'es' ? 'Nota leída · +1' : 'Note read · +1')
-            : (lang === 'es' ? '¡Buen trabajo! · +1' : 'Nice work · +1'));
-        }
-      });
-
-      // Photo pod accepts real file drops, just to make the simulation tactile.
-      if (def.kind === 'photo') {
-        el.addEventListener('dragenter', (e) => { e.preventDefault(); el.classList.add('over'); });
-        el.addEventListener('dragover',  (e) => { e.preventDefault(); el.classList.add('over'); });
-        el.addEventListener('dragleave', () => { el.classList.remove('over'); });
-        el.addEventListener('drop', (e) => {
-          e.preventDefault();
-          el.classList.remove('over');
-          fakeReceive();
-        });
-      }
-    });
-  }
-
-  // ====== Audio engine ======
-  let audioCtx = null;
-  let masterGain = null;
-  let pad = null; // {oscs, gain}
-  function ensureAudio() {
-    if (audioCtx) return audioCtx;
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    masterGain = audioCtx.createGain();
-    masterGain.gain.value = 0.4;
-    masterGain.connect(audioCtx.destination);
-
-    // Ambient pad: two slow detuned sines, very quiet.
-    const padGain = audioCtx.createGain();
-    padGain.gain.value = 0;
-    padGain.connect(masterGain);
-    const o1 = audioCtx.createOscillator(); o1.type = 'sine'; o1.frequency.value = 98.0;
-    const o2 = audioCtx.createOscillator(); o2.type = 'sine'; o2.frequency.value = 146.83;
-    const o3 = audioCtx.createOscillator(); o3.type = 'triangle'; o3.frequency.value = 196.0;
-    [o1, o2, o3].forEach(o => o.connect(padGain).connect(masterGain));
-    // Tiny chorus via slow LFO on o3 freq.
-    const lfo = audioCtx.createOscillator(); lfo.frequency.value = 0.05;
-    const lfoGain = audioCtx.createGain(); lfoGain.gain.value = 1.5;
-    lfo.connect(lfoGain).connect(o3.frequency);
-    o1.start(); o2.start(); o3.start(); lfo.start();
-    pad = { gain: padGain };
-    return audioCtx;
-  }
-
-  function setPadLevel(v) {
-    if (!pad) return;
-    pad.gain.gain.setTargetAtTime(v, audioCtx.currentTime, 0.5);
-    document.documentElement.style.setProperty('--pad-mix', v.toString());
-  }
-
-  function blip(freq, vol, type) {
-    if (!audioOn || !audioCtx) return;
-    const o = audioCtx.createOscillator();
-    o.type = type || 'sine';
-    o.frequency.value = freq;
-    const g = audioCtx.createGain();
-    const now = audioCtx.currentTime;
-    g.gain.setValueAtTime(0, now);
-    g.gain.linearRampToValueAtTime(vol, now + 0.005);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-    o.connect(g).connect(masterGain);
-    o.start(now);
-    o.stop(now + 0.22);
-  }
-
-  function playChord(subject, vol = 0.5) {
-    if (!audioCtx) return;
-    const now = audioCtx.currentTime;
-    subject.chord.forEach((f, i) => {
-      const o = audioCtx.createOscillator();
-      o.type = subject.id === 'data' ? 'square' : (subject.id === 'sci' ? 'triangle' : 'sine');
-      o.frequency.value = f;
-      const g = audioCtx.createGain();
-      const t0 = now + i * 0.04;
-      g.gain.setValueAtTime(0, t0);
-      g.gain.linearRampToValueAtTime(vol * 0.10, t0 + 0.03);
-      g.gain.exponentialRampToValueAtTime(0.001, t0 + 1.6);
-      o.connect(g).connect(masterGain);
-      o.start(t0);
-      o.stop(t0 + 1.7);
-    });
-  }
-
-  function fakeReceive() {
-    if (audioOn) {
-      // Whoosh + bell.
-      const ctx = audioCtx;
-      const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.4), ctx.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let i = 0; i < d.length; i++) {
-        const env = Math.exp(-i / d.length * 5);
-        d[i] = (Math.random() * 2 - 1) * env * 0.5;
-      }
-      const src = ctx.createBufferSource(); src.buffer = buf;
-      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1800; bp.Q.value = 1.4;
-      src.connect(bp).connect(masterGain);
-      src.start();
-      blip(1320, 0.05, 'sine');
-      setTimeout(() => blip(1760, 0.04, 'sine'), 180);
-    }
-    earnCoins(3);
-    showToast(lang === 'es' ? 'Foto recibida · +3' : 'Photo received · +3');
-  }
-
-  // ====== Coins & timer ======
-  let coins = 0;
-  let coinPct = 12;
-  let timerStart = performance.now();
-  function earnCoins(n) {
-    coins += n;
-    coinCount.textContent = coins;
-    coinPct = Math.min(100, coinPct + n * 4);
-    coinFill.style.width = coinPct + '%';
-    if (coinPct >= 100) {
-      coinPct = 0;
-      coins += 1; // bonus
-      coinCount.textContent = coins;
-      coinFill.style.width = '0%';
-      showToast(lang === 'es' ? '¡Moneda extra!' : 'Bonus coin!');
-      if (audioOn) {
-        const ctx = audioCtx;
-        [1320, 1760, 2640].forEach((f, i) => setTimeout(() => blip(f, 0.08, 'sine'), i * 80));
-      }
-    }
-  }
-  function tickTimer() {
-    const elapsed = (performance.now() - timerStart) / 1000;
-    const remaining = Math.max(0, 5 * 60 - elapsed);
-    const m = Math.floor(remaining / 60);
-    const s = Math.floor(remaining % 60);
-    coinTimer.textContent = `${m}:${s.toString().padStart(2, '0')}`;
-    if (remaining <= 0) { timerStart = performance.now(); earnCoins(2); }
-  }
-  setInterval(tickTimer, 250);
-
-  // ====== Toast ======
   let toastT = null;
   function showToast(msg) {
-    toast.textContent = msg;
-    toast.classList.add('show');
-    clearTimeout(toastT);
-    toastT = setTimeout(() => toast.classList.remove('show'), 1700);
+    toast.textContent = msg; toast.classList.add('show');
+    clearTimeout(toastT); toastT = setTimeout(() => toast.classList.remove('show'), 1800);
   }
 
-  // ====== Particles ======
-  let dpr = 1;
-  function resizeParticles() {
-    dpr = window.devicePixelRatio || 1;
-    const r = stage.getBoundingClientRect();
-    particles.width = r.width * dpr;
-    particles.height = r.height * dpr;
-    pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // ===================================================================
+  //  Canvas plumbing
+  // ===================================================================
+  function setupCanvas(cv) {
+    const c = cv.getContext('2d');
+    function fit() {
+      const r = cv.getBoundingClientRect();
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      cv.width = Math.max(1, Math.round(r.width * dpr));
+      cv.height = Math.max(1, Math.round(r.height * dpr));
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      cv._w = r.width; cv._h = r.height;
+    }
+    fit();
+    return { c, fit, cv };
   }
-  window.addEventListener('resize', resizeParticles);
-  resizeParticles();
+  const heroC = setupCanvas(document.getElementById('heroCv'));
+  const oscC = setupCanvas(document.getElementById('oscCv'));
+  const specC = setupCanvas(document.getElementById('specCv'));
+  const motesCv = document.getElementById('motes');
+  const motesCtx = motesCv.getContext('2d');
+  function fitMotes() {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    motesCv.width = Math.round(innerWidth * dpr); motesCv.height = Math.round(innerHeight * dpr);
+    motesCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  fitMotes();
+  window.addEventListener('resize', () => { heroC.fit(); oscC.fit(); specC.fit(); fitMotes(); buildMotes(); });
 
-  // 80 floating motes with slow drift.
-  const motes = [];
-  function initMotes() {
-    motes.length = 0;
-    const r = stage.getBoundingClientRect();
-    for (let i = 0; i < 80; i++) {
-      motes.push({
-        x: Math.random() * r.width,
-        y: Math.random() * r.height,
-        vx: (Math.random() - 0.5) * 0.18,
-        vy: (Math.random() - 0.5) * 0.18,
-        r: Math.random() * 1.4 + 0.4,
-        hue: Math.random(),
-      });
+  // Motes.
+  let motes = [];
+  function buildMotes() {
+    motes = [];
+    const n = reduceMotion ? 26 : 64;
+    for (let i = 0; i < n; i++) {
+      motes.push({ x: Math.random() * innerWidth, y: Math.random() * innerHeight,
+        vx: (Math.random() - 0.5) * 0.16, vy: (Math.random() - 0.5) * 0.16,
+        r: Math.random() * 1.4 + 0.3, ph: Math.random() * 6.28 });
     }
   }
-  initMotes();
-  window.addEventListener('resize', initMotes);
+  buildMotes();
 
-  function paintParticles(now) {
-    const r = stage.getBoundingClientRect();
-    pctx.clearRect(0, 0, r.width, r.height);
-    const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-    for (const m of motes) {
-      m.x += m.vx;
-      m.y += m.vy;
-      if (m.x < 0) m.x += r.width;
-      else if (m.x > r.width) m.x -= r.width;
-      if (m.y < 0) m.y += r.height;
-      else if (m.y > r.height) m.y -= r.height;
-      const flicker = 0.4 + 0.6 * Math.sin(now / 1000 + m.hue * 6);
-      pctx.beginPath();
-      pctx.fillStyle = `rgba(${accent}, ${0.12 * flicker})`;
-      pctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
-      pctx.fill();
+  // Band meter elements.
+  const meterEls = {
+    bass: { fill: document.getElementById('bassFill'), peak: document.getElementById('bassPeak'), v: 0, pk: 0 },
+    mid:  { fill: document.getElementById('midFill'),  peak: document.getElementById('midPeak'),  v: 0, pk: 0 },
+    treb: { fill: document.getElementById('trebFill'), peak: document.getElementById('trebPeak'), v: 0, pk: 0 },
+  };
+  const coreNote = document.getElementById('coreNote');
+  const coreHz = document.getElementById('coreHz');
+  const oscVal = document.getElementById('oscVal');
+  const rmsVal = document.getElementById('rmsVal');
+  const stPeak = document.getElementById('stPeak');
+  const stCentroid = document.getElementById('stCentroid');
+  const stRms = document.getElementById('stRms');
+  const stCrest = document.getElementById('stCrest');
+
+  // Spectrogram offscreen scroll buffer.
+  let specScroll = document.createElement('canvas');
+  let specScrollCtx = specScroll.getContext('2d');
+  function fitSpecScroll() {
+    specScroll.width = Math.max(1, Math.round(specC.cv._w));
+    specScroll.height = Math.max(1, Math.round(specC.cv._h));
+  }
+  fitSpecScroll();
+  window.addEventListener('resize', fitSpecScroll);
+
+  // Smoothed UI state.
+  let accentHue = 210, accentLerp = { h: 210, level: 0 };
+  let heroBars = new Float32Array(128);
+  let smoothPeak = 0, smoothCentroid = 0;
+
+  // ===================================================================
+  //  Render loop
+  // ===================================================================
+  function binToFreq(i) { return i * actx.sampleRate / analyser.fftSize; }
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    drawMotes(now);
+    if (!started || !analyser) return;
+
+    analyser.getByteFrequencyData(freqData);
+    analyser.getByteTimeDomainData(timeData);
+
+    // ---- Analysis ----
+    const bins = freqData.length;
+    const nyq = actx.sampleRate / 2;
+    let sum = 0, wsum = 0, peakVal = 0, peakBin = 0;
+    let bass = 0, bassN = 0, mid = 0, midN = 0, treb = 0, trebN = 0;
+    for (let i = 1; i < bins; i++) {
+      const v = freqData[i];
+      const f = (i / bins) * nyq;
+      sum += v; wsum += v * f;
+      if (v > peakVal) { peakVal = v; peakBin = i; }
+      if (f < 250) { bass += v; bassN++; }
+      else if (f < 2000) { mid += v; midN++; }
+      else { treb += v; trebN++; }
     }
-  }
-  function tick(now) {
-    paintParticles(now);
-    requestAnimationFrame(tick);
-  }
-  requestAnimationFrame(tick);
+    const centroid = sum > 0 ? wsum / sum : 0;
+    const peakHz = binToFreq(peakBin);
+    const level = sum / bins / 255; // 0..1 rough loudness
 
-  // ====== Mouse tracking for background tint ======
-  document.addEventListener('mousemove', (e) => {
-    const x = (e.clientX / window.innerWidth) * 100;
-    const y = (e.clientY / window.innerHeight) * 100;
-    document.documentElement.style.setProperty('--mx', x + '%');
-    document.documentElement.style.setProperty('--my', y + '%');
-  });
+    // Time-domain RMS + crest factor.
+    let rms = 0, tmax = 0;
+    for (let i = 0; i < timeData.length; i++) {
+      const s = (timeData[i] - 128) / 128;
+      rms += s * s; if (Math.abs(s) > tmax) tmax = Math.abs(s);
+    }
+    rms = Math.sqrt(rms / timeData.length);
+    const rmsDb = rms > 0.0005 ? (20 * Math.log10(rms)) : -90;
+    const crestDb = rms > 0.0005 ? (20 * Math.log10(Math.max(tmax, 1e-4) / rms)) : 0;
 
-  // ====== Audio toggle ======
-  audioToggle.addEventListener('click', () => {
-    if (!audioOn) {
-      ensureAudio();
-      if (audioCtx.state === 'suspended') audioCtx.resume();
-      audioOn = true;
-      audioToggle.classList.add('on');
-      audioToggle.textContent = lang === 'es' ? 'Sonido encendido' : 'Sound on';
-      setPadLevel(0.025);
-      // Welcome chord.
-      playChord(activeSubject, 0.55);
-      showToast(lang === 'es' ? 'Sonido encendido' : 'Sound on');
+    // ---- Accent colour from dominant pitch ----
+    if (peakVal > 24) {
+      const targetHue = pitchHue(peakHz);
+      let dh = targetHue - accentLerp.h;
+      if (dh > 180) dh -= 360; if (dh < -180) dh += 360;
+      accentLerp.h = (accentLerp.h + dh * 0.06 + 360) % 360;
+    }
+    accentLerp.level += (level - accentLerp.level) * 0.1;
+    const accRgb = hslToRgbStr(accentLerp.h, 70, 60);
+    document.documentElement.style.setProperty('--accent', accRgb);
+    document.documentElement.style.setProperty('--level', accentLerp.level.toFixed(3));
+
+    // ---- Core readout ----
+    smoothPeak += (peakHz - smoothPeak) * 0.18;
+    smoothCentroid += (centroid - smoothCentroid) * 0.1;
+    if (peakVal > 24) {
+      const n = noteName(peakHz);
+      coreNote.textContent = n.name + (n.oct !== '' ? '' : '');
+      coreNote.style.color = pitchColor(peakHz, 0.95);
+      coreHz.textContent = (n.oct !== '' ? n.name + n.oct + '  ·  ' : '') + Math.round(peakHz) + ' Hz';
     } else {
-      audioOn = false;
-      audioToggle.classList.remove('on');
-      audioToggle.textContent = lang === 'es' ? 'Sonido apagado' : 'Sound off';
-      setPadLevel(0);
+      coreNote.textContent = '—';
+      coreNote.style.color = 'var(--ink)';
+      coreHz.textContent = 'listening';
     }
-  });
+    stPeak.innerHTML = (peakVal > 24 ? Math.round(peakHz) : '—') + '<small>Hz</small>';
+    stCentroid.innerHTML = (centroid > 1 ? Math.round(smoothCentroid) : '—') + '<small>Hz</small>';
+    stRms.innerHTML = (rmsDb > -89 ? Math.round(rmsDb) : '—') + '<small>dB</small>';
+    stCrest.innerHTML = (rms > 0.0005 ? crestDb.toFixed(1) : '—') + '<small>dB</small>';
+    rmsVal.textContent = (rmsDb > -89 ? Math.round(rmsDb) + ' dB' : '—');
+    oscVal.textContent = (peakVal > 24 ? Math.round(peakHz) + ' Hz' : '—');
 
-  // Pause audio when tab hidden.
+    // ---- Band meters ----
+    updateBand(meterEls.bass, bassN ? bass / bassN / 255 : 0, 'hsl(0,80%,55%)');
+    updateBand(meterEls.mid,  midN ? mid / midN / 255 : 0,  'hsl(140,75%,52%)');
+    updateBand(meterEls.treb, trebN ? treb / trebN / 255 : 0, 'hsl(210,85%,58%)');
+
+    drawHero(now, peakVal, level);
+    drawOsc();
+    drawSpectrogram();
+  }
+
+  function updateBand(b, v, color) {
+    b.v += (v - b.v) * 0.3;
+    const pct = Math.min(100, b.v * 130);
+    b.fill.style.height = pct + '%';
+    b.fill.style.background = `linear-gradient(0deg, ${color}, color-mix(in srgb, ${color} 50%, white))`;
+    b.fill.style.boxShadow = `0 0 14px ${color}`;
+    b.pk = Math.max(b.pk - 0.7, pct);
+    b.peak.style.bottom = `calc(${Math.min(100, b.pk)}% - 1px)`;
+  }
+
+  // ---- Hero radial spectrum ----
+  function drawHero(now, peakVal, level) {
+    const { c } = heroC; const w = heroC.cv._w, h = heroC.cv._h;
+    c.clearRect(0, 0, w, h);
+    const cx = w / 2, cy = h / 2;
+    const baseR = Math.min(w, h) * 0.17;
+    const maxLen = Math.min(w, h) * 0.30;
+    const N = heroBars.length;
+    const rot = reduceMotion ? 0 : now * 0.00004;
+
+    // Map N angular bars onto a log-frequency slice of the spectrum.
+    const fLo = 40, fHi = 14000;
+    const bins = freqData.length, nyq = actx.sampleRate / 2;
+    for (let i = 0; i < N; i++) {
+      const t = i / N;
+      const f = fLo * Math.pow(fHi / fLo, t);
+      const bin = Math.max(1, Math.min(bins - 1, Math.round(f / nyq * bins)));
+      // small neighbourhood max for stability
+      let m = 0; for (let k = -1; k <= 1; k++) m = Math.max(m, freqData[bin + k] || 0);
+      const target = m / 255;
+      heroBars[i] += (target - heroBars[i]) * 0.35;
+    }
+
+    // Glow underlay ring.
+    c.save();
+    c.translate(cx, cy);
+    c.rotate(rot);
+
+    // Inner disc.
+    const discGrad = c.createRadialGradient(0, 0, baseR * 0.2, 0, 0, baseR);
+    const accH = accentLerp.h;
+    discGrad.addColorStop(0, `hsla(${accH}, 70%, 55%, ${0.10 + level * 0.25})`);
+    discGrad.addColorStop(1, 'hsla(0,0%,0%,0)');
+    c.fillStyle = discGrad;
+    c.beginPath(); c.arc(0, 0, baseR * 1.6, 0, 6.2832); c.fill();
+
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 0; i < N; i++) {
+        const a = (i / N) * Math.PI * 2 - Math.PI / 2;
+        const t = i / N;
+        const f = fLo * Math.pow(fHi / fLo, t);
+        const v = heroBars[i];
+        const len = Math.pow(v, 0.85) * maxLen;
+        if (len < 0.6) continue;
+        const r0 = baseR, r1 = baseR + len;
+        const x0 = Math.cos(a) * r0, y0 = Math.sin(a) * r0;
+        const x1 = Math.cos(a) * r1, y1 = Math.sin(a) * r1;
+        // Single clean rainbow around the wheel (low->high = red->violet).
+        const hue = t * 300;
+        const sat = 85, lig = 42 + v * 26;
+        if (pass === 0) {
+          c.strokeStyle = `hsla(${hue}, ${sat}%, ${lig}%, 0.28)`;
+          c.lineWidth = 6; c.lineCap = 'round';
+          c.shadowBlur = 16; c.shadowColor = `hsl(${hue}, ${sat}%, ${lig}%)`;
+        } else {
+          c.strokeStyle = `hsl(${hue}, ${sat}%, ${lig}%)`;
+          c.lineWidth = 2.4; c.lineCap = 'round';
+          c.shadowBlur = 0;
+        }
+        c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke();
+      }
+    }
+    c.shadowBlur = 0;
+
+    // Pulsing core ring driven by level.
+    const pulse = baseR * (0.92 + level * 0.12 + (reduceMotion ? 0 : Math.sin(now * 0.004) * 0.02));
+    c.beginPath(); c.arc(0, 0, pulse, 0, 6.2832);
+    c.strokeStyle = `hsla(${accH}, 80%, 62%, ${0.35 + level * 0.4})`;
+    c.lineWidth = 2; c.shadowBlur = 18; c.shadowColor = `hsl(${accH},80%,60%)`;
+    c.stroke(); c.shadowBlur = 0;
+    c.restore();
+  }
+
+  // ---- Oscilloscope ----
+  function drawOsc() {
+    const { c } = oscC; const w = oscC.cv._w, h = oscC.cv._h;
+    c.clearRect(0, 0, w, h);
+    c.strokeStyle = 'rgba(255,255,255,0.05)'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(0, h / 2); c.lineTo(w, h / 2); c.stroke();
+    const n = timeData.length;
+    const accH = accentLerp.h;
+    // glow pass + core pass
+    for (let pass = 0; pass < 2; pass++) {
+      c.beginPath();
+      for (let i = 0; i < n; i++) {
+        const x = (i / n) * w;
+        const y = (1 - (timeData[i] - 128) / 128) * 0.5 * h * 0.9 + h * 0.05;
+        i === 0 ? c.moveTo(x, y) : c.lineTo(x, y);
+      }
+      if (pass === 0) { c.strokeStyle = `hsla(${accH},85%,60%,0.3)`; c.lineWidth = 4; c.shadowBlur = 12; c.shadowColor = `hsl(${accH},85%,60%)`; }
+      else { c.strokeStyle = `hsl(${accH},90%,72%)`; c.lineWidth = 1.4; c.shadowBlur = 0; }
+      c.stroke();
+    }
+    c.shadowBlur = 0;
+  }
+
+  // ---- Spectrogram (scrolling) ----
+  function drawSpectrogram() {
+    const w = specC.cv._w, h = specC.cv._h;
+    if (specScroll.width !== Math.round(w) || specScroll.height !== Math.round(h)) fitSpecScroll();
+    // Shift existing image left by 2px.
+    specScrollCtx.globalCompositeOperation = 'copy';
+    specScrollCtx.drawImage(specScroll, -2, 0);
+    specScrollCtx.globalCompositeOperation = 'source-over';
+    // Draw new column(s) at the right edge, log-frequency on Y (low at bottom).
+    const bins = freqData.length, nyq = actx.sampleRate / 2;
+    const fLo = 40, fHi = nyq;
+    const colX = specScroll.width - 2;
+    for (let yy = 0; yy < h; yy++) {
+      const ty = 1 - yy / h; // 0 bottom .. 1 top
+      const f = fLo * Math.pow(fHi / fLo, ty);
+      const bin = Math.max(1, Math.min(bins - 1, Math.round(f / nyq * bins)));
+      const v = freqData[bin] / 255;
+      if (v < 0.04) { continue; }
+      const hue = ty * 300;
+      specScrollCtx.fillStyle = `hsla(${hue}, 90%, ${20 + v * 55}%, ${Math.min(1, v * 1.5)})`;
+      specScrollCtx.fillRect(colX, yy, 2, 1);
+    }
+    // Blit to visible canvas.
+    const { c } = specC;
+    c.clearRect(0, 0, w, h);
+    c.drawImage(specScroll, 0, 0, w, h);
+  }
+
+  // ---- Background motes ----
+  function drawMotes(now) {
+    motesCtx.clearRect(0, 0, innerWidth, innerHeight);
+    const acc = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '88,166,255';
+    for (const m of motes) {
+      m.x += m.vx; m.y += m.vy;
+      if (m.x < 0) m.x += innerWidth; else if (m.x > innerWidth) m.x -= innerWidth;
+      if (m.y < 0) m.y += innerHeight; else if (m.y > innerHeight) m.y -= innerHeight;
+      const fl = reduceMotion ? 0.5 : 0.4 + 0.6 * Math.sin(now / 1000 + m.ph);
+      motesCtx.beginPath();
+      motesCtx.fillStyle = `rgba(${acc}, ${0.10 * fl})`;
+      motesCtx.arc(m.x, m.y, m.r, 0, 6.2832);
+      motesCtx.fill();
+    }
+  }
+
+  requestAnimationFrame(frame);
+
+  // Pause / resume audio with tab visibility.
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && audioCtx) audioCtx.suspend();
-    else if (audioCtx) audioCtx.resume();
+    if (!actx) return;
+    if (document.hidden) actx.suspend();
+    else if (audioOn) actx.resume();
   });
-
-  // ====== Init ======
-  renderPods();
-  // Pretend a parent note arrived after 4s.
-  setTimeout(() => showToast(lang === 'es' ? 'Nueva nota familiar' : 'New parent note'), 4000);
-
 })();
 </script>
 </body>

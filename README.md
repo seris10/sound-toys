@@ -2,6 +2,11 @@
 
 Interactive audio experiments and visualizations. All client-side, no backend, no dependencies.
 
+Every toy shares one idea, taken from the flagship **Resonance**: colour maps to
+sound. Pitch sets hue (a full rainbow per octave, the way pitch-class synesthesia
+describes it), register and loudness raise saturation and brightness, so what you
+hear and what you see move together.
+
 **Live:** [sound-toy-deploy.pages.dev](https://sound-toy-deploy.pages.dev)
 
 ## Toys
@@ -16,8 +21,8 @@ Interactive audio experiments and visualizations. All client-side, no backend, n
 | **Theremin** | Pointer-driven sine wave. Left/right for pitch (log-mapped), up/down for volume. Optional scale snapping. |
 | **Karplus&ndash;Strong Strings** | Pluck a virtual string. Noise burst into a feedback delay loop &mdash; the simplest physical-modeling synth, audibly recognisable as a plucked string. |
 | **Vowel Formants** | Drag through the IPA vowel chart and hear a sawtooth become recognisable vowels as two bandpass formants track tongue position. |
-| **Doppler** | Drag a moving sound source around a listener; wavefronts bunch up in front and stretch behind, and the perceived pitch follows the maths. |
-| **Resonant Dashboard** | An imagined student dashboard built as a sound toy: subject wheel, orbiting pods, photo drop, coin gauge &mdash; every element reacts to hover, click, drop, and time. |
+| **Doppler** | Drag a moving sound source past a listener; wavefronts bunch up in front and stretch behind, each ring tinted warm (approaching, higher) or cool (receding, lower), and the perceived pitch follows the maths. |
+| **Resonance Live Console** | A dashboard that is itself a sound toy. A generative engine sings while a real spectrum analyser drives a radial pitch wheel, oscilloscope, scrolling spectrogram, band meters and telemetry &mdash; colour mapped to pitch throughout. Switch to your microphone, or play the pitch-coloured pads. |
 | **Studio** | Four-track loop sandbox. Bake drums / bass / pluck / pad patterns or record from your microphone, then layer them with live master FFT + waveform. |
 
 ## Run locally

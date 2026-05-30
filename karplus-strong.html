@@ -138,7 +138,8 @@
       The simplest physical-modeling synthesis there is: fill a delay line with noise, then
       repeatedly average each sample with its neighbour. Each round of averaging is a low-pass
       filter; the loop length sets the pitch. Tap a string anywhere to pluck it &mdash; closer to
-      the edge gives a brighter tone, like plucking near a guitar bridge.
+      the edge gives a brighter tone, like plucking near a guitar bridge. Each string glows in
+      its own colour, mapped to its pitch, so the set forms a rainbow ladder.
     </p>
   </header>
 
@@ -185,6 +186,22 @@
 </div>
 
 <script>
+  // ---------- Shared sound -> color engine ----------
+  // Hue maps to pitch class (a full 360 degrees per octave); saturation rises
+  // with register + loudness; lightness rises with loudness. (pitch-class synesthesia)
+  function pitchColor(freq, amp = 1, alpha = 1) {
+    const ANCHOR = 65.41; // C2 -> hue 0 (red)
+    const octavePos = Math.log2(Math.max(1e-6, freq) / ANCHOR);
+    const hue = ((octavePos % 1) * 360 + 360) % 360;
+    const octave = Math.max(0, Math.min(5, octavePos));
+    const sat = Math.min(100, 55 + octave * 6 + amp * 25);
+    const light = 38 + amp * 24;
+    return alpha >= 1 ? `hsl(${hue}, ${sat}%, ${light}%)` : `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`;
+  }
+  function pitchHue(freq){const A=65.41;return((Math.log2(Math.max(1e-6,freq)/A)%1)*360+360)%360;}
+
+  const REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   // ---------- Audio (lazy) ----------
   let ctx = null, master = null;
   function ensure() {
@@ -285,6 +302,8 @@
   // Each string keeps its current visual displacement amplitude + decay phase.
   // We draw a damped standing-wave-looking curve for visual feedback.
   const strings = [];
+  // Expanding colored rings emitted on pluck (signature feedback).
+  const ripples = [];
   function rebuildStrings() {
     const freqs = TUNINGS[tuningSel.value];
     strings.length = 0;
@@ -293,9 +312,12 @@
         freq: freqs[i],
         name: noteOf(freqs[i]),
         amp: 0,           // current display amplitude
+        glow: 0,          // smoothed brightness (lerps toward amp)
         phase: Math.random() * Math.PI * 2,
         decay: 0.992,     // visual decay (audio decay is separate via sustain)
         modes: 1 + Math.floor(Math.random() * 2), // visual standing-wave modes
+        travel: Math.random(),  // 0..1 position of the energy highlight
+        pluckU: 0.5,      // normalized pluck x where the energy was injected
       });
     }
   }
@@ -323,9 +345,28 @@
     src.connect(master);
     src.start();
     s.amp = 1;
+    s.glow = 1;
     s.phase = 0;
     s.modes = pluckPos < 0.2 ? 4 : pluckPos < 0.4 ? 3 : pluckPos < 0.7 ? 2 : 1;
     s._pluckX = posX;
+    s.pluckU = pluckPos;
+    s.travel = pluckPos; // energy starts where you plucked
+
+    // Emit an expanding colored ring + particle splash at the pluck position,
+    // coloured by the string's pitch. Fades over ~0.5s.
+    const hue = pitchHue(s.freq);
+    ripples.push({
+      x: posX, i, hue,
+      r: 6, vr: 280 + (1 - pluckPos) * 220, // brighter/edge plucks burst faster
+      life: 1, fade: 1 / 0.5,               // ~0.5s lifetime
+      bright: brightness,
+      parts: REDUCED_MOTION ? [] : Array.from({ length: 10 }, () => {
+        const a = Math.random() * Math.PI * 2;
+        const sp = 40 + Math.random() * 130;
+        return { dx: Math.cos(a) * sp, dy: Math.sin(a) * sp * 0.5, sz: 1 + Math.random() * 2 };
+      }),
+    });
+
     hint.classList.add('hidden');
   }
 
@@ -346,50 +387,145 @@
 
   // ---------- Render loop ----------
   let t = 0;
-  function frame() {
-    t += 1 / 60;
+  let lastT = performance.now();
+  function frame(nowMs) {
+    const dt = Math.min(0.05, (nowMs - lastT) / 1000) || 1 / 60;
+    lastT = nowMs;
+    t += dt;
     const r = cv.getBoundingClientRect();
     const w = r.width, h = r.height;
     c2d.clearRect(0, 0, w, h);
-    // Background line for the sound hole-ish vibe.
+    // Background: a faint vertical wash plus a soft rainbow tint sampled from
+    // the strings' own pitch hues, so the stage breathes in the toy's palette.
     const grd = c2d.createLinearGradient(0, 0, 0, h);
     grd.addColorStop(0, 'rgba(88,166,255,0.04)');
     grd.addColorStop(1, 'rgba(120,80,255,0.04)');
     c2d.fillStyle = grd;
     c2d.fillRect(0, 0, w, h);
 
+    const startX = 36, endX = w - 70;
+    const len = endX - startX;
+
+    // Soft ambient glow behind any string that is currently ringing.
+    for (let i = 0; i < strings.length; i++) {
+      const s = strings[i];
+      if (s.glow < 0.02) continue;
+      const sy = stringY(i, h);
+      const g = c2d.createLinearGradient(startX, sy, endX, sy);
+      const hue = pitchHue(s.freq);
+      g.addColorStop(0, `hsla(${hue}, 80%, 55%, 0)`);
+      g.addColorStop(0.5, `hsla(${hue}, 85%, 60%, ${0.10 * s.glow})`);
+      g.addColorStop(1, `hsla(${hue}, 80%, 55%, 0)`);
+      c2d.fillStyle = g;
+      c2d.fillRect(startX, sy - 22, len, 44);
+    }
+
     for (let i = 0; i < strings.length; i++) {
       const s = strings[i];
       const sy = stringY(i, h);
-      // Note label on the left and right.
-      c2d.fillStyle = 'rgba(255,255,255,0.45)';
+      const hue = pitchHue(s.freq);
+      // Brightness tracks the live visual amplitude: loud = neon, decaying = dimming.
+      const vis = s.glow;
+      // Brightness control nudges saturation (mellow = a touch desaturated).
+      const briCtl = parseFloat(bri.value) / 100;
+      const labelColor = pitchColor(s.freq, 0.25 + vis * 0.75);
+
+      // Note label on the left (pitch-coloured) and frequency on the right.
       c2d.font = '11px sans-serif';
       c2d.textBaseline = 'middle';
       c2d.textAlign = 'right';
+      c2d.save();
+      c2d.shadowBlur = 6 + vis * 14;
+      c2d.shadowColor = `hsla(${hue}, 90%, 60%, ${0.4 + vis * 0.5})`;
+      c2d.fillStyle = labelColor;
       c2d.fillText(s.name, 28, sy);
+      c2d.restore();
+      c2d.fillStyle = `hsla(${hue}, 30%, 70%, ${0.35 + vis * 0.4})`;
       c2d.textAlign = 'left';
       c2d.fillText(Math.round(s.freq) + ' Hz', w - 60, sy);
 
       // String itself: damped standing-wave envelope, fundamental + a couple modes.
-      const startX = 36, endX = w - 70;
-      const len = endX - startX;
       const ampPx = s.amp * 14;
-      c2d.beginPath();
-      c2d.strokeStyle = `rgba(180, 220, 255, ${0.35 + s.amp * 0.55})`;
-      c2d.lineWidth = 1.4;
       const M = s.modes;
-      for (let xi = 0; xi <= len; xi += 2) {
-        const u = xi / len;
-        const env = Math.sin(u * Math.PI);
-        const wave = Math.sin(u * Math.PI * M + s.phase) * env;
-        const y = sy + wave * ampPx;
-        if (xi === 0) c2d.moveTo(startX + xi, y); else c2d.lineTo(startX + xi, y);
-      }
+      const sat = Math.min(100, (55 + Math.max(0, Math.min(5, Math.log2(s.freq / 65.41))) * 6 + vis * 25) * (0.7 + briCtl * 0.3));
+
+      // Glow pass (wide, dim) then core pass (thin, bright) — neon-on-dark.
+      const buildPath = () => {
+        c2d.beginPath();
+        for (let xi = 0; xi <= len; xi += 2) {
+          const u = xi / len;
+          const env = Math.sin(u * Math.PI);
+          const wave = Math.sin(u * Math.PI * M + s.phase) * env;
+          const y = sy + wave * ampPx;
+          if (xi === 0) c2d.moveTo(startX + xi, y); else c2d.lineTo(startX + xi, y);
+        }
+      };
+      buildPath();
+      c2d.strokeStyle = `hsla(${hue}, ${sat}%, ${50 + vis * 18}%, ${0.12 + vis * 0.35})`;
+      c2d.lineWidth = 6;
+      c2d.stroke();
+      buildPath();
+      c2d.strokeStyle = `hsla(${hue}, ${Math.min(100, sat + 15)}%, ${42 + vis * 30}%, ${0.4 + vis * 0.55})`;
+      c2d.lineWidth = 1.4;
       c2d.stroke();
 
-      s.amp *= s.decay;
-      s.phase += 0.25;
+      // Traveling energy highlight: a bright bead sliding along the string at a
+      // rate tied to its frequency. Skipped under reduced-motion.
+      if (!REDUCED_MOTION && vis > 0.04) {
+        s.travel += dt * (0.25 + s.freq / 600);
+        const u = (s.travel % 1);
+        const env = Math.sin(u * Math.PI);
+        const wave = Math.sin(u * Math.PI * M + s.phase) * env;
+        const bx = startX + u * len;
+        const by = sy + wave * ampPx;
+        c2d.beginPath();
+        c2d.arc(bx, by, 2 + vis * 4, 0, Math.PI * 2);
+        c2d.fillStyle = `hsla(${hue}, 95%, ${62 + vis * 12}%, ${0.5 + vis * 0.4})`;
+        c2d.save();
+        c2d.shadowBlur = 10 + vis * 16;
+        c2d.shadowColor = `hsl(${hue}, 95%, 65%)`;
+        c2d.fill();
+        c2d.restore();
+      }
+
+      s.amp *= Math.pow(s.decay, dt * 60);
+      s.phase += 15 * dt;            // visual shimmer (frame-rate independent)
+      s.glow += (s.amp - s.glow) * Math.min(1, dt * 8);
       if (s.amp < 0.001) s.amp = 0;
+    }
+
+    // ---------- Ripples / pluck bursts ----------
+    for (let k = ripples.length - 1; k >= 0; k--) {
+      const rp = ripples[k];
+      rp.life -= rp.fade * dt;
+      if (rp.life <= 0) { ripples.splice(k, 1); continue; }
+      rp.r += rp.vr * dt;
+      const sy = stringY(rp.i, h);
+      const a = rp.life;
+      // Expanding ring.
+      c2d.beginPath();
+      c2d.arc(rp.x, sy, rp.r, 0, Math.PI * 2);
+      c2d.strokeStyle = `hsla(${rp.hue}, 95%, ${58 + rp.bright * 12}%, ${0.45 * a})`;
+      c2d.lineWidth = 2 * a + 0.5;
+      c2d.save();
+      c2d.shadowBlur = 18 * a;
+      c2d.shadowColor = `hsl(${rp.hue}, 95%, 60%)`;
+      c2d.stroke();
+      c2d.restore();
+      // Bright pluck flash at the origin.
+      c2d.beginPath();
+      c2d.arc(rp.x, sy, 3 + (1 - a) * 4, 0, Math.PI * 2);
+      c2d.fillStyle = `hsla(${rp.hue}, 95%, 70%, ${0.7 * a})`;
+      c2d.fill();
+      // Particle splash.
+      for (const p of rp.parts) {
+        const px = rp.x + p.dx * (1 - a);
+        const py = sy + p.dy * (1 - a);
+        c2d.beginPath();
+        c2d.arc(px, py, p.sz * a, 0, Math.PI * 2);
+        c2d.fillStyle = `hsla(${rp.hue}, 90%, 65%, ${0.8 * a})`;
+        c2d.fill();
+      }
     }
 
     requestAnimationFrame(frame);

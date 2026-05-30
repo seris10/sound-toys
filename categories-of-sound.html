@@ -38,6 +38,25 @@
     <script type="text/babel">
         const { useState, useEffect, useRef, useMemo } = React;
 
+        // ── Continuous frequency → colour ───────────────────────────────
+        // The whole scrub (1 Hz … 15 MHz) maps to a smooth rainbow so colour
+        // tracks the sound continuously, not just per category: low = red,
+        // rising through the spectrum to violet at the top — the same "pitch
+        // ascends through the rainbow" idea the flagship Resonance toy uses.
+        const freqHue = (ratio) => ratio * 288;            // 0..1 -> red..violet
+        const hsl = (h, s, l, a = 1) => `hsla(${h}, ${s}%, ${l}%, ${a})`;
+
+        // Snap landmarks (in scrub-ratio space) at the perceptual boundaries
+        // and a couple of reference pitches. Used for keyboard jumps + ticks.
+        const LANDMARKS = [
+          { ratio: 0.000, label: '1 Hz' },
+          { ratio: 0.181, label: '20 Hz' },
+          { ratio: 0.368, label: 'A4 440' },
+          { ratio: 0.599, label: '20 kHz' },
+          { ratio: 0.878, label: '2 MHz' },
+          { ratio: 1.000, label: '15 MHz' },
+        ];
+
         // --- ICONS (Converted from Lucide/Custom to pure SVGs for standalone use) ---
         const IconBase = ({ d, className, children }) => (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -48,8 +67,6 @@
 
         const Activity = ({ className }) => <IconBase d="M22 12h-4l-3 9L9 3l-3 9H2" className={className} />;
         const Ear = ({ className }) => <IconBase d="M6 8.5a6.5 6.5 0 1 1 13 0c0 6-6 6-6 10a3.5 3.5 0 1 1-7 0" className={className} />;
-        const Radio = ({ className }) => <IconBase className={className}><circle cx="12" cy="12" r="2"/><path d="M4.9 19.1a10 10 0 0 1 0-14.2M19.1 4.9a10 10 0 0 1 0 14.2M1.4 22.6a15 15 0 0 1 0-21.2M22.6 1.4a15 15 0 0 1 0 21.2"/></IconBase>;
-        const Stethoscope = ({ className }) => <IconBase className={className}><path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/><path d="M8 15v1a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6v-4"/><circle cx="20" cy="10" r="2"/></IconBase>;
         const Vibrate = ({ className }) => <IconBase className={className}><path d="M2 8v8"/><path d="M22 8v8"/><path d="M6 5v14"/><path d="M18 5v14"/><rect width="8" height="18" x="8" y="3" rx="1"/></IconBase>;
         const MousePointer2 = ({ className }) => <IconBase className={className}><path d="m3 3 7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="m13 13 6 6"/></IconBase>;
         const CloudLightning = ({ className }) => <IconBase className={className}><path d="M6 16.326A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 .5 8.973"/><path d="m13 12-3 5h4l-3 5"/></IconBase>;
@@ -203,6 +220,29 @@
 
             const toggleAudio = () => setAudioOn((v) => !v);
 
+            // Keyboard scrubbing: arrows nudge, Shift+arrows jump between the
+            // perceptual landmarks (audible floor, A4, ultrasound, etc.).
+            useEffect(() => {
+                const onKey = (e) => {
+                    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+                    e.preventDefault();
+                    const dir = e.key === 'ArrowRight' ? 1 : -1;
+                    setHasInteracted(true);
+                    if (e.shiftKey) {
+                        setTargetRatio((r) => {
+                            const xs = LANDMARKS.map(l => l.ratio);
+                            return dir > 0
+                                ? (xs.find(v => v > r + 1e-4) ?? 1)
+                                : ([...xs].reverse().find(v => v < r - 1e-4) ?? 0);
+                        });
+                    } else {
+                        setTargetRatio((r) => Math.max(0, Math.min(1, r + dir * 0.02)));
+                    }
+                };
+                window.addEventListener('keydown', onKey);
+                return () => window.removeEventListener('keydown', onKey);
+            }, []);
+
             const activeCategory = useMemo(() => {
                 if (actualFrequency < 20) return { id: 'infra', name: 'Infrasound', color: '239, 68, 68' }; 
                 if (actualFrequency < 20000) return { id: 'audible', name: 'Audible', color: '234, 179, 8' }; 
@@ -289,15 +329,18 @@
                     ctx.rect(0, surfaceY, w, availableHeight + 100);
                     ctx.clip();
 
+                    const waveHue = freqHue(currentRatio);
                     const numWaves = 3;
                     for (let j = 0; j < numWaves; j++) {
                         ctx.beginPath();
                         ctx.lineWidth = j === 0 ? 3 : 1.5;
-                        const alpha = j === 0 ? 0.8 : 0.3;
-                        ctx.strokeStyle = `rgba(${activeCategory.color}, ${alpha})`;
-                        
-                        ctx.shadowBlur = j === 0 ? 15 : 5;
-                        ctx.shadowColor = `rgba(${activeCategory.color}, 0.8)`;
+                        const alpha = j === 0 ? 0.85 : 0.3;
+                        // Continuous frequency hue, with each echo shifted slightly
+                        // so the bundle of waves reads as a little spectrum of its own.
+                        ctx.strokeStyle = hsl((waveHue + j * 10) % 360, 90, 58, alpha);
+
+                        ctx.shadowBlur = j === 0 ? 16 : 5;
+                        ctx.shadowColor = hsl(waveHue, 90, 58, 0.85);
 
                         const phaseOffset = j * (Math.PI / 3);
 
@@ -391,7 +434,7 @@
                         </div>
                         
                         <div className="mt-2 flex flex-col items-start">
-                            <div className="text-6xl md:text-8xl font-black tabular-nums tracking-tighter" style={{ color: `rgb(${activeCategory.color})`, textShadow: `0 0 40px rgba(${activeCategory.color}, 0.5)`}}>
+                            <div className="text-6xl md:text-8xl font-black tabular-nums tracking-tighter" style={{ color: hsl(freqHue(currentRatio), 90, 62), textShadow: `0 0 40px ${hsl(freqHue(currentRatio), 90, 55, 0.5)}`}}>
                                 {formatHz(actualFrequency)}
                             </div>
                             <div className="text-2xl md:text-4xl font-light text-slate-200 tracking-tight">
@@ -468,14 +511,17 @@
 
                         <div className="relative w-full h-12 flex items-center">
                             <div className="absolute w-full h-1.5 bg-slate-800 rounded-full overflow-hidden shadow-inner">
-                                <div 
-                                    className="h-full transition-all duration-100 ease-out" 
-                                    style={{ width: `${currentRatio * 100}%`, backgroundColor: `rgb(${activeCategory.color})` }}
+                                <div
+                                    className="h-full transition-all duration-100 ease-out"
+                                    style={{ width: `${currentRatio * 100}%`, background: `linear-gradient(90deg, ${hsl(0,90,55)}, ${hsl(freqHue(currentRatio),90,58)})` }}
                                 />
                             </div>
-                            <div 
+                            {LANDMARKS.map((lm, i) => (
+                                <div key={i} className="absolute w-px h-3 bg-white/25 pointer-events-none" style={{ left: `${lm.ratio * 100}%`, top: '50%', transform: 'translateY(-50%)' }} title={lm.label} />
+                            ))}
+                            <div
                                 className="absolute w-5 h-10 -mt-5 rounded-full border-2 border-white bg-slate-900 shadow-[0_0_15px_rgba(255,255,255,0.4)] transition-all duration-75 flex items-center justify-center"
-                                style={{ left: `calc(${currentRatio * 100}% - 10px)`, borderColor: `rgb(${activeCategory.color})` }}
+                                style={{ left: `calc(${currentRatio * 100}% - 10px)`, borderColor: hsl(freqHue(currentRatio), 90, 60) }}
                             >
                                 <div className="w-1 h-4 bg-slate-400 rounded-full" />
                             </div>
@@ -492,7 +538,7 @@
                         <div className="flex flex-col items-center animate-bounce">
                             <MousePointer2 className="w-10 h-10 text-white mb-4 drop-shadow-lg" />
                             <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight text-center px-4">Scrub to explore</h1>
-                            <p className="text-slate-300 mt-3 text-lg font-light">Watch the targets in the top right</p>
+                            <p className="text-slate-300 mt-3 text-lg font-light">Drag, or use &larr; &rarr; (Shift to jump). Watch the targets, top right.</p>
                         </div>
                     </div>
                 </div>
