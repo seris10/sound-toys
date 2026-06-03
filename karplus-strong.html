@@ -3,15 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Karplus&ndash;Strong Strings</title>
+<title>Karplus&ndash;Strong Strings &mdash; a harp you can strum</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #0a0f19;
-    color: #e0e6f0;
+    background:
+      radial-gradient(1100px 700px at 50% -8%, rgba(120,140,200,0.10), transparent 60%),
+      linear-gradient(180deg, #0c1018, #070a10);
+    color: #e6ebf5;
     overflow: hidden;
     user-select: none;
     -webkit-user-select: none;
@@ -22,110 +24,87 @@
     height: 100vh;
     display: grid;
     grid-template-rows: auto 1fr auto;
-    gap: 16px;
-    padding: 24px;
-    max-width: 1100px;
+    gap: 12px;
+    padding: 16px 18px 14px;
+    max-width: 1280px;
     margin: 0 auto;
   }
-  header h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 4px; }
-  header p { color: #8a93a6; font-size: 0.9rem; line-height: 1.5; max-width: 720px; }
+  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  header h1 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.02em; }
+  header p { color: #8a93a6; font-size: 0.82rem; line-height: 1.45; max-width: 760px; }
+  header p b { color: #c2cbe0; font-weight: 600; }
 
   .stage {
     position: relative;
-    background: rgba(255,255,255,0.025);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 14px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 16px;
     overflow: hidden;
+    min-height: 0;
   }
-  canvas { display: block; width: 100%; height: 100%; cursor: pointer; }
+  .stage canvas { display: block; width: 100%; height: 100%; cursor: pointer; touch-action: none; }
   .stage-hint {
-    position: absolute;
-    bottom: 14px;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 0.78rem;
-    color: rgba(255,255,255,0.4);
-    pointer-events: none;
-    transition: opacity 0.4s;
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    font-size: 0.76rem; color: rgba(255,255,255,0.5); pointer-events: none;
+    transition: opacity 0.5s; text-align: center; width: 90%;
   }
   .stage-hint.hidden { opacity: 0; }
 
+  /* ---------- Controls ---------- */
   .controls {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 14px;
+    display: flex; flex-wrap: wrap; align-items: stretch; gap: 10px;
   }
-  .control {
-    background: rgba(255,255,255,0.04);
+  .group {
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(255,255,255,0.035);
     border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 10px;
-    padding: 12px 14px;
+    border-radius: 12px;
+    padding: 8px 12px;
   }
-  .control .row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 6px;
+  .group.grow { flex: 1; min-width: 150px; }
+  .field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .field label {
+    font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.1em; color: #707a8c; font-weight: 600;
+    display: flex; justify-content: space-between; gap: 8px;
   }
-  .control .row .name {
-    font-weight: 600;
-    font-size: 0.85rem;
+  .field label .v { color: #aeb8cc; font-variant-numeric: tabular-nums; }
+  select {
+    background: rgba(255,255,255,0.06); color: #e6ebf5;
+    border: 1px solid rgba(255,255,255,0.12); border-radius: 7px;
+    padding: 6px 8px; font-size: 0.84rem; font-family: inherit;
   }
-  .control .row .value {
-    font-size: 0.85rem;
-    color: #58a6ff;
-    font-variant-numeric: tabular-nums;
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none; background: transparent; height: 18px; width: 100%; min-width: 90px; cursor: pointer;
   }
-  .control input[type="range"] {
-    width: 100%;
-    -webkit-appearance: none;
-    appearance: none;
-    background: transparent;
-    height: 22px;
+  input[type="range"]::-webkit-slider-runnable-track,
+  input[type="range"]::-moz-range-track { height: 3px; background: rgba(255,255,255,0.14); border-radius: 2px; }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 14px; height: 14px; margin-top: -5.5px;
+    border-radius: 50%; background: #c0cbe6; box-shadow: 0 0 8px rgba(160,190,255,0.7); cursor: pointer;
   }
-  .control input[type="range"]::-webkit-slider-runnable-track {
-    height: 3px;
-    background: rgba(255,255,255,0.1);
-    border-radius: 2px;
+  input[type="range"]::-moz-range-thumb {
+    width: 14px; height: 14px; border: none; border-radius: 50%; background: #c0cbe6;
+    box-shadow: 0 0 8px rgba(160,190,255,0.7); cursor: pointer;
   }
-  .control input[type="range"]::-moz-range-track {
-    height: 3px;
-    background: rgba(255,255,255,0.1);
-    border-radius: 2px;
+  .btn {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #e6ebf5;
+    border-radius: 8px; padding: 8px 14px; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+    font-family: inherit; transition: background 0.15s, border-color 0.15s, color 0.15s; white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 7px;
   }
-  .control input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: #58a6ff;
-    margin-top: -5px;
-    cursor: pointer;
-  }
-  .control input[type="range"]::-moz-range-thumb {
-    width: 14px;
-    height: 14px;
-    border: none;
-    border-radius: 50%;
-    background: #58a6ff;
-    cursor: pointer;
-  }
-  .control select {
-    width: 100%;
-    background: rgba(255,255,255,0.06);
-    color: #e0e6f0;
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 6px;
-    padding: 6px 8px;
-    font-size: 0.85rem;
-    margin-top: 4px;
-  }
-  .control .hint {
-    margin-top: 6px;
-    font-size: 0.72rem;
-    color: #707a8c;
-    line-height: 1.4;
+  .btn:hover { background: rgba(255,255,255,0.12); }
+  .btn .led { width: 8px; height: 8px; border-radius: 50%; background: #6b7388; transition: background 0.2s, box-shadow 0.2s; }
+  .btn.rec.armed { background: rgba(239,68,68,0.85); border-color: rgba(239,68,68,0.9); color: #fff; }
+  .btn.rec.armed .led { background: #fff; box-shadow: 0 0 10px #fff; animation: blink 1s steps(2) infinite; }
+  .btn.looping .led { background: #4ade80; box-shadow: 0 0 10px #4ade80; }
+  .btn.toggle.on { background: rgba(120,150,230,0.28); border-color: rgba(120,150,230,0.5); color: #fff; }
+  @keyframes blink { 50% { opacity: 0.25; } }
+  @media (prefers-reduced-motion: reduce) { .btn.rec.armed .led { animation: none; } }
+
+  @media (max-width: 720px) {
+    header p { display: none; }
+    .group { padding: 7px 10px; gap: 8px; }
+    .wrap { padding: 12px; }
   }
 </style>
 </head>
@@ -187,422 +166,505 @@
 })();
 </script>
 
-
 <div class="wrap">
   <header>
     <h1>Karplus&ndash;Strong Strings</h1>
     <p>
-      The simplest physical-modeling synthesis there is: fill a delay line with noise, then
-      repeatedly average each sample with its neighbour. Each round of averaging is a low-pass
-      filter; the loop length sets the pitch. Tap a string anywhere to pluck it &mdash; closer to
-      the edge gives a brighter tone, like plucking near a guitar bridge. Each string glows in
-      its own colour, mapped to its pitch, so the set forms a rainbow ladder.
+      Each string is a delay line full of noise, low-pass filtered as it loops &mdash; the simplest
+      physical model of a plucked string. <b>Tap</b> a string to pluck it, <b>drag across</b> to strum
+      the harp, use <b>two fingers</b> for chords. Where you touch sets the timbre; how fast you strum
+      sets how hard. Strings glow in their own colour, mapped to pitch.
     </p>
   </header>
 
   <div class="stage">
     <canvas id="cv"></canvas>
-    <div class="stage-hint" id="hint">Tap any string to pluck</div>
+    <div class="stage-hint" id="hint">Tap a string &middot; drag to strum &middot; two fingers for a chord</div>
   </div>
 
   <div class="controls">
-    <div class="control">
-      <div class="row"><span class="name">Tuning</span></div>
-      <select id="tuningSel">
-        <option value="guitar">Standard guitar (E A D G B E)</option>
-        <option value="dadgad">DADGAD</option>
-        <option value="openD">Open D</option>
-        <option value="pent" selected>Pentatonic ladder</option>
-        <option value="koto">Koto (D minor)</option>
-      </select>
-    </div>
-    <div class="control">
-      <div class="row">
-        <span class="name">Brightness</span>
-        <span class="value" id="briVal">0.50</span>
+    <div class="group">
+      <div class="field">
+        <label>Scale</label>
+        <select id="scaleSel">
+          <option value="majPent" selected>Major pentatonic</option>
+          <option value="minPent">Minor pentatonic</option>
+          <option value="major">Major</option>
+          <option value="dorian">Dorian</option>
+          <option value="lydian">Lydian</option>
+          <option value="insen">Japanese (In&nbsp;Sen)</option>
+          <option value="wholetone">Whole tone</option>
+          <option value="chromatic">Chromatic</option>
+        </select>
       </div>
-      <input type="range" id="bri" min="0" max="100" step="1" value="50">
-      <div class="hint">How aggressively each loop round averages. Lower = darker, mellower.</div>
-    </div>
-    <div class="control">
-      <div class="row">
-        <span class="name">Sustain</span>
-        <span class="value" id="susVal">0.996</span>
+      <div class="field">
+        <label>Key</label>
+        <select id="rootSel">
+          <option value="55.00">A</option>
+          <option value="58.27">A#/Bb</option>
+          <option value="61.74">B</option>
+          <option value="65.41" selected>C</option>
+          <option value="69.30">C#/Db</option>
+          <option value="73.42">D</option>
+          <option value="82.41">E</option>
+          <option value="98.00">G</option>
+        </select>
       </div>
-      <input type="range" id="sus" min="900" max="999" step="1" value="996">
-      <div class="hint">Loop gain. Close to 1 = long sustain. Above 1 would feed back and explode.</div>
     </div>
-    <div class="control">
-      <div class="row">
-        <span class="name">Volume</span>
-        <span class="value" id="volVal">35%</span>
+
+    <div class="group grow">
+      <div class="field" style="flex:1">
+        <label>Brightness <span class="v" id="briVal">0.55</span></label>
+        <input type="range" id="bri" min="0" max="100" step="1" value="55">
       </div>
-      <input type="range" id="vol" min="0" max="100" step="1" value="35">
+      <div class="field" style="flex:1">
+        <label>Sustain <span class="v" id="susVal">0.50</span></label>
+        <input type="range" id="sus" min="0" max="100" step="1" value="50">
+      </div>
+      <div class="field" style="flex:1">
+        <label>Reverb <span class="v" id="revVal">35%</span></label>
+        <input type="range" id="rev" min="0" max="100" step="1" value="35">
+      </div>
+      <div class="field" style="flex:1">
+        <label>Volume <span class="v" id="volVal">70%</span></label>
+        <input type="range" id="vol" min="0" max="100" step="1" value="70">
+      </div>
+    </div>
+
+    <div class="group">
+      <button class="btn toggle on" id="sympBtn" title="Sympathetic resonance: a plucked string lightly excites its harmonic neighbours">Sympathetic</button>
+      <button class="btn rec" id="recBtn"><span class="led"></span><span id="recLabel">Loop</span></button>
+      <button class="btn" id="clearBtn">Clear</button>
     </div>
   </div>
 </div>
 
 <script>
-  // ---------- Shared sound -> color engine ----------
-  // Hue maps to pitch class (a full 360 degrees per octave); saturation rises
-  // with register + loudness; lightness rises with loudness. (pitch-class synesthesia)
+(() => {
+  'use strict';
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ── Sound -> colour (shared "Resonance" mapping) ─────────────────────
+  const ANCHOR = 65.41;
   function pitchColor(freq, amp = 1, alpha = 1) {
-    const ANCHOR = 65.41; // C2 -> hue 0 (red)
     const octavePos = Math.log2(Math.max(1e-6, freq) / ANCHOR);
     const hue = ((octavePos % 1) * 360 + 360) % 360;
     const octave = Math.max(0, Math.min(5, octavePos));
     const sat = Math.min(100, 55 + octave * 6 + amp * 25);
-    const light = 38 + amp * 24;
+    const light = 40 + amp * 24;
     return alpha >= 1 ? `hsl(${hue}, ${sat}%, ${light}%)` : `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`;
   }
-  function pitchHue(freq){const A=65.41;return((Math.log2(Math.max(1e-6,freq)/A)%1)*360+360)%360;}
+  const NOTE = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  function noteName(hz) { const s = Math.round(12 * Math.log2(hz / 16.3516)); return NOTE[((s % 12) + 12) % 12] + Math.floor(s / 12); }
 
-  const REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // ── Scales ───────────────────────────────────────────────────────────
+  const SCALES = {
+    majPent:   [0, 2, 4, 7, 9],
+    minPent:   [0, 3, 5, 7, 10],
+    major:     [0, 2, 4, 5, 7, 9, 11],
+    dorian:    [0, 2, 3, 5, 7, 9, 10],
+    lydian:    [0, 2, 4, 6, 7, 9, 11],
+    insen:     [0, 1, 5, 7, 10],
+    wholetone: [0, 2, 4, 6, 8, 10],
+    chromatic: [0,1,2,3,4,5,6,7,8,9,10,11],
+  };
+  const N_STRINGS = 16;
 
-  // ---------- Audio (lazy) ----------
-  let ctx = null, master = null;
+  // ── DOM ───────────────────────────────────────────────────────────────
+  const cv = document.getElementById('cv');
+  const c2d = cv.getContext('2d');
+  const scaleSel = document.getElementById('scaleSel');
+  const rootSel = document.getElementById('rootSel');
+  const bri = document.getElementById('bri'), briVal = document.getElementById('briVal');
+  const sus = document.getElementById('sus'), susVal = document.getElementById('susVal');
+  const rev = document.getElementById('rev'), revVal = document.getElementById('revVal');
+  const vol = document.getElementById('vol'), volVal = document.getElementById('volVal');
+  const sympBtn = document.getElementById('sympBtn');
+  const recBtn = document.getElementById('recBtn'), recLabel = document.getElementById('recLabel');
+  const clearBtn = document.getElementById('clearBtn');
+  const hint = document.getElementById('hint');
+
+  let sympOn = true;
+
+  // ── Audio engine ──────────────────────────────────────────────────────
+  let ctx = null, master = null, dryGain = null, revSend = null, conv = null;
+  function makeReverb(c, secs = 2.6, decay = 2.4) {
+    const len = Math.floor(c.sampleRate * secs);
+    const b = c.createBuffer(2, len, c.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = b.getChannelData(ch);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+    }
+    const cv = c.createConvolver(); cv.buffer = b; return cv;
+  }
   function ensure() {
     if (ctx) return;
     ctx = new (window.AudioContext || window.webkitAudioContext)();
-    master = ctx.createGain();
-    master.gain.value = parseFloat(vol.value) / 100;
-    master.connect(ctx.destination);
+    master = ctx.createGain(); master.gain.value = parseFloat(vol.value) / 100;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -16; comp.knee.value = 22; comp.ratio.value = 3.2;
+    comp.attack.value = 0.003; comp.release.value = 0.2;
+    master.connect(comp); comp.connect(ctx.destination);
+    dryGain = ctx.createGain(); dryGain.gain.value = 1; dryGain.connect(master);
+    conv = makeReverb(ctx);
+    revSend = ctx.createGain(); revSend.gain.value = parseFloat(rev.value) / 100;
+    conv.connect(revSend); revSend.connect(master);
   }
 
-  // Standard Karplus-Strong: fill a buffer of length N = sampleRate / freq
-  // with noise, then repeatedly set buffer[i] = 0.5 * (buffer[i] + buffer[i-1])
-  // (the low-pass), multiplied by a decay coefficient < 1.
-  //
-  // We pre-render into an AudioBuffer per pluck so each pluck plays cheaply.
-  function pluckBuffer(freqHz, durSec, brightness, sustain, pluckPos) {
-    ensure();
+  // Karplus–Strong: noise-filled delay line, low-passed each loop.
+  function pluckBuffer(freq, durSec, brightness, sustain, pluckPos) {
     const sr = ctx.sampleRate;
-    const N = Math.max(2, Math.round(sr / freqHz));
-    const totalSamples = Math.floor(sr * durSec);
-    const buf = ctx.createBuffer(1, totalSamples, sr);
+    const N = Math.max(2, Math.round(sr / freq));
+    const total = Math.floor(sr * durSec);
+    const buf = ctx.createBuffer(1, total, sr);
     const out = buf.getChannelData(0);
-
-    // Excitation: a pluck shape with a noise component. pluckPos in (0,1]:
-    // small pluckPos = near the bridge = sharper noise = brighter spectrum.
-    const exc = new Float32Array(N);
-    const sharpness = 1 - Math.max(0.05, Math.min(0.95, pluckPos));
+    const sharp = 1 - Math.max(0.04, Math.min(0.96, pluckPos)); // near an end = sharper = brighter
+    const ring = new Float32Array(N);
+    const noiseAmt = 0.35 + sharp * 0.6;
     for (let i = 0; i < N; i++) {
       const r = (i + 0.5) / N;
-      // A simple triangular pluck displacement, plus a touch of noise.
       const tri = (r < 0.5 ? r * 2 : (1 - r) * 2);
-      const noiseAmt = 0.4 + sharpness * 0.6;
-      exc[i] = (tri - 0.5) * (1 - noiseAmt) + (Math.random() * 2 - 1) * noiseAmt;
+      ring[i] = (tri - 0.5) * (1 - noiseAmt) + (Math.random() * 2 - 1) * noiseAmt;
     }
-
-    // Blend factor for the lowpass step. brightness 0..1 -> blend 0.5..0.95
-    // (higher blend = more averaging = darker).
     const blend = 0.5 + (1 - brightness) * 0.45;
     const decay = sustain;
-
-    const ring = new Float32Array(N);
-    for (let i = 0; i < N; i++) ring[i] = exc[i];
-
     let head = 0;
-    for (let i = 0; i < totalSamples; i++) {
+    for (let i = 0; i < total; i++) {
       out[i] = ring[head];
       const next = (head + 1) % N;
-      const avg = blend * ring[head] + (1 - blend) * ring[next];
-      ring[head] = avg * decay;
+      ring[head] = (blend * ring[head] + (1 - blend) * ring[next]) * decay;
       head = next;
     }
-
-    // Soft fade at the very end so we never get a click on buffer cutoff.
-    const fadeLen = Math.min(totalSamples, Math.floor(sr * 0.04));
-    for (let i = 0; i < fadeLen; i++) {
-      out[totalSamples - 1 - i] *= i / fadeLen;
-    }
+    const fade = Math.min(total, Math.floor(sr * 0.04));
+    for (let i = 0; i < fade; i++) out[total - 1 - i] *= i / fade;
     return buf;
   }
 
-  // ---------- Strings & tunings ----------
-  const TUNINGS = {
-    guitar: [82.41, 110.00, 146.83, 196.00, 246.94, 329.63],   // E2 A2 D3 G3 B3 E4
-    dadgad: [73.42, 110.00, 146.83, 196.00, 220.00, 293.66],   // D2 A2 D3 G3 A3 D4
-    openD:  [73.42, 110.00, 146.83, 185.00, 220.00, 293.66],   // D2 A2 D3 F#3 A3 D4
-    pent:   [220.00, 261.63, 329.63, 392.00, 440.00, 523.25],  // A C E G A C
-    koto:   [146.83, 220.00, 261.63, 293.66, 349.23, 440.00],  // D A C D F A
-  };
-  const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-  function noteOf(hz) {
-    const C0 = 16.3516;
-    const s = Math.round(12 * Math.log2(hz / C0));
-    return NOTE_NAMES[((s % 12) + 12) % 12] + Math.floor(s / 12);
+  function playVoice(freq, vel, pluckPos) {
+    const brightness = parseFloat(bri.value) / 100;
+    const sustain = 0.985 + (parseFloat(sus.value) / 100) * 0.0135; // 0.985..0.9985
+    const dur = 1.5 + sustain * 4;
+    const buf = pluckBuffer(freq, dur, brightness, sustain, pluckPos);
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const g = ctx.createGain(); g.gain.value = vel * 0.6;
+    src.connect(g);
+    g.connect(dryGain);
+    const s = ctx.createGain(); s.gain.value = 0.9; g.connect(s); s.connect(conv);
+    src.start();
   }
 
-  // ---------- DOM ----------
-  const cv = document.getElementById('cv');
-  const c2d = cv.getContext('2d');
-  const tuningSel = document.getElementById('tuningSel');
-  const bri = document.getElementById('bri');
-  const sus = document.getElementById('sus');
-  const vol = document.getElementById('vol');
-  const briVal = document.getElementById('briVal');
-  const susVal = document.getElementById('susVal');
-  const volVal = document.getElementById('volVal');
-  const hint = document.getElementById('hint');
+  // ── Strings ───────────────────────────────────────────────────────────
+  const strings = [];
+  function buildStrings() {
+    strings.length = 0;
+    const scale = SCALES[scaleSel.value];
+    const root = parseFloat(rootSel.value);
+    for (let i = 0; i < N_STRINGS; i++) {
+      const oct = Math.floor(i / scale.length);
+      const deg = scale[i % scale.length];
+      const freq = root * Math.pow(2, oct + deg / 12);
+      strings.push({
+        freq, name: noteName(freq),
+        amp: 0, glow: 0,            // visual amplitude (target) + smoothed glow
+        modes: [1, 0.4, 0.2],       // mode weights, recomputed per pluck
+        phase: Math.random() * 6.28,
+        ripples: [],                // {x,y,t}
+        lastPluck: 0,
+      });
+    }
+  }
+  buildStrings();
+  scaleSel.addEventListener('change', () => { buildStrings(); });
+  rootSel.addEventListener('change', () => { buildStrings(); });
 
+  // Geometry
+  let W = 0, H = 0;
+  const TOP = 40, BOT_PAD = 46; // string vertical extent; soundboard below
+  function stringX(i) {
+    const left = W * 0.06, right = W * 0.94;
+    return left + (right - left) * (i / (N_STRINGS - 1));
+  }
+  function stringTopY() { return TOP; }
+  function stringBotY() { return H - BOT_PAD; }
+
+  // ── Pluck (the heart) ─────────────────────────────────────────────────
+  function pluck(i, pluckPos, vel, fromLoop) {
+    if (i < 0 || i >= strings.length) return;
+    ensure();
+    if (ctx.state === 'suspended') ctx.resume();
+    const s = strings[i];
+    vel = Math.max(0.2, Math.min(1, vel));
+    playVoice(s.freq, vel, pluckPos);
+
+    // Visual response.
+    s.amp = vel;
+    s.glow = Math.max(s.glow, vel);
+    s.phase = 0;
+    // Mode content from pluck position: a string plucked near an end is richer
+    // in upper harmonics; near the middle it's mostly the fundamental.
+    const p = Math.max(0.04, Math.min(0.96, pluckPos));
+    s.modes = [];
+    for (let m = 1; m <= 5; m++) s.modes.push(Math.abs(Math.sin(m * Math.PI * p)) / (m * m));
+    const sy = stringTopY() + pluckPos * (stringBotY() - stringTopY());
+    s.ripples.push({ x: stringX(i), y: sy, t: 0, vel });
+    if (s.ripples.length > 4) s.ripples.shift();
+    s.lastPluck = performance.now();
+
+    // Sympathetic resonance: lightly excite strings at simple frequency ratios.
+    if (sympOn && !fromLoop) {
+      for (let j = 0; j < strings.length; j++) {
+        if (j === i) continue;
+        const r = strings[j].freq / s.freq;
+        const ratio = r > 1 ? r : 1 / r;
+        const near = Math.abs(ratio - Math.round(ratio));
+        if (Math.round(ratio) >= 1 && Math.round(ratio) <= 4 && near < 0.012) {
+          const sv = vel * 0.10;
+          playVoice(strings[j].freq, sv, 0.5);
+          strings[j].amp = Math.max(strings[j].amp, sv * 1.4);
+          strings[j].glow = Math.max(strings[j].glow, sv * 1.4);
+        }
+      }
+    }
+
+    // Looper capture.
+    if (recording && !fromLoop) {
+      const t = loopActive ? (((performance.now() - loopStart) % loopLen) + loopLen) % loopLen
+                           : (performance.now() - recStart);
+      loopEvents.push({ i, pluckPos, vel, t });
+    }
+    hint.classList.add('hidden');
+  }
+
+  // ── Pointer handling: tap / strum / multi-touch ───────────────────────
+  const pointers = new Map(); // id -> { lastIndex, lastX, lastY, lastT }
+  function indexAtX(x) {
+    let best = -1, bestD = Infinity;
+    for (let i = 0; i < N_STRINGS; i++) {
+      const d = Math.abs(stringX(i) - x);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    const spacing = (stringX(1) - stringX(0));
+    return bestD <= spacing * 0.62 ? best : -1;
+  }
+  function pluckPosFromY(y) {
+    return Math.max(0, Math.min(1, (y - stringTopY()) / (stringBotY() - stringTopY())));
+  }
+  function localXY(e) {
+    const r = cv.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  cv.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    cv.setPointerCapture(e.pointerId);
+    const { x, y } = localXY(e);
+    const i = indexAtX(x);
+    if (i >= 0) pluck(i, pluckPosFromY(y), 0.85, false);
+    pointers.set(e.pointerId, { lastIndex: i, lastX: x, lastY: y, lastT: performance.now() });
+  });
+  cv.addEventListener('pointermove', (e) => {
+    const p = pointers.get(e.pointerId);
+    if (!p) return;
+    const { x, y } = localXY(e);
+    const now = performance.now();
+    const dt = Math.max(8, now - p.lastT);
+    const speed = Math.hypot(x - p.lastX, y - p.lastY) / dt; // px/ms
+    const i = indexAtX(x);
+    if (i >= 0 && i !== p.lastIndex) {
+      // Strum: pluck every string crossed since the last frame for a glissando.
+      const vel = Math.max(0.35, Math.min(1, 0.45 + speed * 0.9));
+      const from = p.lastIndex < 0 ? i : p.lastIndex;
+      const step = i > from ? 1 : -1;
+      for (let k = from + step; ; k += step) {
+        pluck(k, pluckPosFromY(y), vel, false);
+        if (k === i) break;
+      }
+      p.lastIndex = i;
+    }
+    p.lastX = x; p.lastY = y; p.lastT = now;
+  });
+  const drop = (e) => { pointers.delete(e.pointerId); };
+  cv.addEventListener('pointerup', drop);
+  cv.addEventListener('pointercancel', drop);
+
+  // Keyboard: home + top row pluck across the harp.
+  const KEYS = "zxcvbnm,asdfghjkl".split('');
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat || e.metaKey || e.ctrlKey) return;
+    const k = KEYS.indexOf(e.key);
+    if (k >= 0 && k < N_STRINGS) pluck(k, 0.5, 0.8, false);
+  });
+
+  // ── Looper ────────────────────────────────────────────────────────────
+  let recording = false, recStart = 0;
+  let loopEvents = [], loopLen = 0, loopStart = 0, loopActive = false, loopPrevElapsed = 0;
+  recBtn.addEventListener('click', () => {
+    ensure();
+    if (!recording) {
+      recording = true;
+      recStart = performance.now();
+      recBtn.classList.add('armed');
+      recLabel.textContent = 'Stop';
+      // Overdub: if a loop is already running, record relative to its start.
+      if (loopActive) recStart = loopStart;
+    } else {
+      recording = false;
+      recBtn.classList.remove('armed');
+      recLabel.textContent = 'Loop';
+      if (!loopActive) {
+        loopLen = Math.max(1500, performance.now() - recStart);
+        loopStart = performance.now();
+        loopActive = loopEvents.length > 0;
+        loopPrevElapsed = 0;
+      }
+      recBtn.classList.toggle('looping', loopActive);
+    }
+  });
+  clearBtn.addEventListener('click', () => {
+    loopEvents = []; loopActive = false; recording = false;
+    recBtn.classList.remove('armed', 'looping'); recLabel.textContent = 'Loop';
+  });
+  function fireRange(a, b) {
+    // Fire every recorded event whose time falls in (a, b]. Order-independent,
+    // so overdubbed notes replay correctly no matter when they were added.
+    for (const ev of loopEvents) if (ev.t > a && ev.t <= b) pluck(ev.i, ev.pluckPos, ev.vel, true);
+  }
+  function serviceLoop() {
+    if (!loopActive || loopEvents.length === 0) return;
+    let elapsed = performance.now() - loopStart;
+    if (elapsed >= loopLen) {
+      fireRange(loopPrevElapsed, loopLen);   // flush the tail of this cycle
+      loopStart += loopLen;
+      loopPrevElapsed = 0;
+      elapsed = performance.now() - loopStart;
+    }
+    fireRange(loopPrevElapsed, elapsed);
+    loopPrevElapsed = elapsed;
+  }
+
+  // ── Controls ──────────────────────────────────────────────────────────
+  bri.addEventListener('input', () => briVal.textContent = (parseFloat(bri.value) / 100).toFixed(2));
+  sus.addEventListener('input', () => susVal.textContent = (parseFloat(sus.value) / 100).toFixed(2));
+  rev.addEventListener('input', () => { revVal.textContent = rev.value + '%'; if (revSend) revSend.gain.setTargetAtTime(parseFloat(rev.value) / 100, ctx.currentTime, 0.05); });
+  vol.addEventListener('input', () => { volVal.textContent = vol.value + '%'; if (master) master.gain.setTargetAtTime(parseFloat(vol.value) / 100, ctx.currentTime, 0.05); });
+  sympBtn.addEventListener('click', () => { sympOn = !sympOn; sympBtn.classList.toggle('on', sympOn); });
+
+  // ── Render ────────────────────────────────────────────────────────────
   let dpr = 1;
   function resize() {
-    dpr = window.devicePixelRatio || 1;
+    dpr = Math.min(2, window.devicePixelRatio || 1);
     const r = cv.getBoundingClientRect();
-    cv.width = r.width * dpr;
-    cv.height = r.height * dpr;
+    W = r.width; H = r.height;
+    cv.width = Math.max(1, Math.round(W * dpr));
+    cv.height = Math.max(1, Math.round(H * dpr));
     c2d.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
   window.addEventListener('resize', resize);
 
-  // Each string keeps its current visual displacement amplitude + decay phase.
-  // We draw a damped standing-wave-looking curve for visual feedback.
-  const strings = [];
-  // Expanding colored rings emitted on pluck (signature feedback).
-  const ripples = [];
-  function rebuildStrings() {
-    const freqs = TUNINGS[tuningSel.value];
-    strings.length = 0;
-    for (let i = 0; i < freqs.length; i++) {
-      strings.push({
-        freq: freqs[i],
-        name: noteOf(freqs[i]),
-        amp: 0,           // current display amplitude
-        glow: 0,          // smoothed brightness (lerps toward amp)
-        phase: Math.random() * Math.PI * 2,
-        decay: 0.992,     // visual decay (audio decay is separate via sustain)
-        modes: 1 + Math.floor(Math.random() * 2), // visual standing-wave modes
-        travel: Math.random(),  // 0..1 position of the energy highlight
-        pluckU: 0.5,      // normalized pluck x where the energy was injected
-      });
-    }
-  }
-  rebuildStrings();
-  tuningSel.addEventListener('change', rebuildStrings);
-
-  // Layout: strings as horizontal lines, evenly spaced, with the lowest at top
-  // (mirrors how guitar tabs are usually shown).
-  function stringY(i, h) {
-    const margin = 36;
-    const span = h - margin * 2;
-    return margin + (i / (strings.length - 1)) * span;
-  }
-
-  function pluckString(i, posX, w) {
-    ensure();
-    if (ctx.state === 'suspended') ctx.resume();
-    const s = strings[i];
-    const pluckPos = Math.max(0.05, Math.min(0.95, posX / w));
-    const brightness = parseFloat(bri.value) / 100;
-    const sustain = parseFloat(sus.value) / 1000;
-    const buf = pluckBuffer(s.freq, 4, brightness, sustain, pluckPos);
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.connect(master);
-    src.start();
-    s.amp = 1;
-    s.glow = 1;
-    s.phase = 0;
-    s.modes = pluckPos < 0.2 ? 4 : pluckPos < 0.4 ? 3 : pluckPos < 0.7 ? 2 : 1;
-    s._pluckX = posX;
-    s.pluckU = pluckPos;
-    s.travel = pluckPos; // energy starts where you plucked
-
-    // Emit an expanding colored ring + particle splash at the pluck position,
-    // coloured by the string's pitch. Fades over ~0.5s.
-    const hue = pitchHue(s.freq);
-    ripples.push({
-      x: posX, i, hue,
-      r: 6, vr: 280 + (1 - pluckPos) * 220, // brighter/edge plucks burst faster
-      life: 1, fade: 1 / 0.5,               // ~0.5s lifetime
-      bright: brightness,
-      parts: REDUCED_MOTION ? [] : Array.from({ length: 10 }, () => {
-        const a = Math.random() * Math.PI * 2;
-        const sp = 40 + Math.random() * 130;
-        return { dx: Math.cos(a) * sp, dy: Math.sin(a) * sp * 0.5, sz: 1 + Math.random() * 2 };
-      }),
-    });
-
-    hint.classList.add('hidden');
-  }
-
-  // ---------- Interaction ----------
-  cv.addEventListener('pointerdown', (e) => {
-    const r = cv.getBoundingClientRect();
-    const x = e.clientX - r.left;
-    const y = e.clientY - r.top;
-    // Find nearest string by y.
-    let best = 0, bestDy = Infinity;
-    for (let i = 0; i < strings.length; i++) {
-      const sy = stringY(i, r.height);
-      const dy = Math.abs(sy - y);
-      if (dy < bestDy) { bestDy = dy; best = i; }
-    }
-    if (bestDy < 40) pluckString(best, x, r.width);
-  });
-
-  // ---------- Render loop ----------
-  let t = 0;
-  let lastT = performance.now();
-  function frame(nowMs) {
-    const dt = Math.min(0.05, (nowMs - lastT) / 1000) || 1 / 60;
-    lastT = nowMs;
-    t += dt;
-    const r = cv.getBoundingClientRect();
-    const w = r.width, h = r.height;
-    c2d.clearRect(0, 0, w, h);
-    // Background: a faint vertical wash plus a soft rainbow tint sampled from
-    // the strings' own pitch hues, so the stage breathes in the toy's palette.
-    const grd = c2d.createLinearGradient(0, 0, 0, h);
-    grd.addColorStop(0, 'rgba(88,166,255,0.04)');
-    grd.addColorStop(1, 'rgba(120,80,255,0.04)');
-    c2d.fillStyle = grd;
-    c2d.fillRect(0, 0, w, h);
-
-    const startX = 36, endX = w - 70;
-    const len = endX - startX;
-
-    // Soft ambient glow behind any string that is currently ringing.
-    for (let i = 0; i < strings.length; i++) {
-      const s = strings[i];
-      if (s.glow < 0.02) continue;
-      const sy = stringY(i, h);
-      const g = c2d.createLinearGradient(startX, sy, endX, sy);
-      const hue = pitchHue(s.freq);
-      g.addColorStop(0, `hsla(${hue}, 80%, 55%, 0)`);
-      g.addColorStop(0.5, `hsla(${hue}, 85%, 60%, ${0.10 * s.glow})`);
-      g.addColorStop(1, `hsla(${hue}, 80%, 55%, 0)`);
-      c2d.fillStyle = g;
-      c2d.fillRect(startX, sy - 22, len, 44);
-    }
-
-    for (let i = 0; i < strings.length; i++) {
-      const s = strings[i];
-      const sy = stringY(i, h);
-      const hue = pitchHue(s.freq);
-      // Brightness tracks the live visual amplitude: loud = neon, decaying = dimming.
-      const vis = s.glow;
-      // Brightness control nudges saturation (mellow = a touch desaturated).
-      const briCtl = parseFloat(bri.value) / 100;
-      const labelColor = pitchColor(s.freq, 0.25 + vis * 0.75);
-
-      // Note label on the left (pitch-coloured) and frequency on the right.
-      c2d.font = '11px sans-serif';
-      c2d.textBaseline = 'middle';
-      c2d.textAlign = 'right';
-      c2d.save();
-      c2d.shadowBlur = 6 + vis * 14;
-      c2d.shadowColor = `hsla(${hue}, 90%, 60%, ${0.4 + vis * 0.5})`;
-      c2d.fillStyle = labelColor;
-      c2d.fillText(s.name, 28, sy);
-      c2d.restore();
-      c2d.fillStyle = `hsla(${hue}, 30%, 70%, ${0.35 + vis * 0.4})`;
-      c2d.textAlign = 'left';
-      c2d.fillText(Math.round(s.freq) + ' Hz', w - 60, sy);
-
-      // String itself: damped standing-wave envelope, fundamental + a couple modes.
-      const ampPx = s.amp * 14;
-      const M = s.modes;
-      const sat = Math.min(100, (55 + Math.max(0, Math.min(5, Math.log2(s.freq / 65.41))) * 6 + vis * 25) * (0.7 + briCtl * 0.3));
-
-      // Glow pass (wide, dim) then core pass (thin, bright) — neon-on-dark.
-      const buildPath = () => {
-        c2d.beginPath();
-        for (let xi = 0; xi <= len; xi += 2) {
-          const u = xi / len;
-          const env = Math.sin(u * Math.PI);
-          const wave = Math.sin(u * Math.PI * M + s.phase) * env;
-          const y = sy + wave * ampPx;
-          if (xi === 0) c2d.moveTo(startX + xi, y); else c2d.lineTo(startX + xi, y);
-        }
-      };
-      buildPath();
-      c2d.strokeStyle = `hsla(${hue}, ${sat}%, ${50 + vis * 18}%, ${0.12 + vis * 0.35})`;
-      c2d.lineWidth = 6;
-      c2d.stroke();
-      buildPath();
-      c2d.strokeStyle = `hsla(${hue}, ${Math.min(100, sat + 15)}%, ${42 + vis * 30}%, ${0.4 + vis * 0.55})`;
-      c2d.lineWidth = 1.4;
-      c2d.stroke();
-
-      // Traveling energy highlight: a bright bead sliding along the string at a
-      // rate tied to its frequency. Skipped under reduced-motion.
-      if (!REDUCED_MOTION && vis > 0.04) {
-        s.travel += dt * (0.25 + s.freq / 600);
-        const u = (s.travel % 1);
-        const env = Math.sin(u * Math.PI);
-        const wave = Math.sin(u * Math.PI * M + s.phase) * env;
-        const bx = startX + u * len;
-        const by = sy + wave * ampPx;
-        c2d.beginPath();
-        c2d.arc(bx, by, 2 + vis * 4, 0, Math.PI * 2);
-        c2d.fillStyle = `hsla(${hue}, 95%, ${62 + vis * 12}%, ${0.5 + vis * 0.4})`;
-        c2d.save();
-        c2d.shadowBlur = 10 + vis * 16;
-        c2d.shadowColor = `hsl(${hue}, 95%, 65%)`;
-        c2d.fill();
-        c2d.restore();
-      }
-
-      s.amp *= Math.pow(s.decay, dt * 60);
-      s.phase += 15 * dt;            // visual shimmer (frame-rate independent)
-      s.glow += (s.amp - s.glow) * Math.min(1, dt * 8);
-      if (s.amp < 0.001) s.amp = 0;
-    }
-
-    // ---------- Ripples / pluck bursts ----------
-    for (let k = ripples.length - 1; k >= 0; k--) {
-      const rp = ripples[k];
-      rp.life -= rp.fade * dt;
-      if (rp.life <= 0) { ripples.splice(k, 1); continue; }
-      rp.r += rp.vr * dt;
-      const sy = stringY(rp.i, h);
-      const a = rp.life;
-      // Expanding ring.
-      c2d.beginPath();
-      c2d.arc(rp.x, sy, rp.r, 0, Math.PI * 2);
-      c2d.strokeStyle = `hsla(${rp.hue}, 95%, ${58 + rp.bright * 12}%, ${0.45 * a})`;
-      c2d.lineWidth = 2 * a + 0.5;
-      c2d.save();
-      c2d.shadowBlur = 18 * a;
-      c2d.shadowColor = `hsl(${rp.hue}, 95%, 60%)`;
-      c2d.stroke();
-      c2d.restore();
-      // Bright pluck flash at the origin.
-      c2d.beginPath();
-      c2d.arc(rp.x, sy, 3 + (1 - a) * 4, 0, Math.PI * 2);
-      c2d.fillStyle = `hsla(${rp.hue}, 95%, 70%, ${0.7 * a})`;
-      c2d.fill();
-      // Particle splash.
-      for (const p of rp.parts) {
-        const px = rp.x + p.dx * (1 - a);
-        const py = sy + p.dy * (1 - a);
-        c2d.beginPath();
-        c2d.arc(px, py, p.sz * a, 0, Math.PI * 2);
-        c2d.fillStyle = `hsla(${rp.hue}, 90%, 65%, ${0.8 * a})`;
-        c2d.fill();
-      }
-    }
-
+  let last = performance.now();
+  function frame(now) {
     requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    serviceLoop();
+
+    c2d.clearRect(0, 0, W, H);
+    const topY = stringTopY(), botY = stringBotY(), len = botY - topY;
+
+    // Soundboard energy = sum of glows.
+    let energy = 0;
+    for (const s of strings) energy += s.glow;
+    energy = Math.min(1, energy / 4);
+
+    // Soundboard glow bar at the base.
+    const sbY = botY + 8;
+    const sbGrad = c2d.createLinearGradient(0, sbY - 18, 0, sbY + 6);
+    sbGrad.addColorStop(0, `rgba(150,180,255,${0.02 + energy * 0.12})`);
+    sbGrad.addColorStop(1, 'rgba(150,180,255,0)');
+    c2d.fillStyle = sbGrad;
+    c2d.fillRect(0, sbY - 18, W, 24);
+    c2d.strokeStyle = `rgba(180,200,255,${0.12 + energy * 0.4})`;
+    c2d.lineWidth = 1.5;
+    c2d.beginPath(); c2d.moveTo(W * 0.04, sbY); c2d.lineTo(W * 0.96, sbY); c2d.stroke();
+
+    const susDecay = 0.985 + (parseFloat(sus.value) / 100) * 0.012;
+
+    for (let i = 0; i < N_STRINGS; i++) {
+      const s = strings[i];
+      const x = stringX(i);
+      s.glow += (s.amp - s.glow) * Math.min(1, dt * 14);
+      const a = s.amp;
+      const colBase = pitchColor(s.freq, 0.25, 1);
+      const colHot = pitchColor(s.freq, Math.min(1, 0.4 + a), 1);
+
+      // Resting string (dim).
+      c2d.strokeStyle = pitchColor(s.freq, 0.18, 0.55);
+      c2d.lineWidth = 1;
+      c2d.beginPath(); c2d.moveTo(x, topY); c2d.lineTo(x, botY); c2d.stroke();
+
+      // Vibrating string: standing-wave mode mixture, displaced horizontally.
+      if (a > 0.003) {
+        const ampPx = a * Math.min(26, (stringX(1) - stringX(0)) * 0.46);
+        const visFreq = 2.2 + Math.log2(s.freq / 110) * 1.4;
+        if (!reduce) s.phase += dt * visFreq * Math.PI * 2;
+        const osc = reduce ? 1 : Math.sin(s.phase);
+        // two passes: soft glow, then bright core
+        for (let pass = 0; pass < 2; pass++) {
+          c2d.beginPath();
+          const N = 26;
+          for (let n = 0; n <= N; n++) {
+            const u = n / N;
+            let disp = 0;
+            for (let m = 0; m < s.modes.length; m++) disp += s.modes[m] * Math.sin((m + 1) * Math.PI * u);
+            const dx = disp * ampPx * osc;
+            const yy = topY + u * len;
+            n === 0 ? c2d.moveTo(x + dx, yy) : c2d.lineTo(x + dx, yy);
+          }
+          if (pass === 0) {
+            c2d.strokeStyle = pitchColor(s.freq, Math.min(1, 0.5 + a), 0.4);
+            c2d.lineWidth = 5; c2d.shadowBlur = 16; c2d.shadowColor = colHot;
+          } else {
+            c2d.strokeStyle = colHot;
+            c2d.lineWidth = 1.6; c2d.shadowBlur = 0;
+          }
+          c2d.stroke();
+        }
+        c2d.shadowBlur = 0;
+      }
+
+      // Anchor dot + note label.
+      c2d.fillStyle = pitchColor(s.freq, 0.3 + s.glow * 0.6, 1);
+      c2d.beginPath(); c2d.arc(x, topY, 2.4 + s.glow * 2.5, 0, 6.2832); c2d.fill();
+      c2d.fillStyle = `rgba(220,228,245,${0.35 + s.glow * 0.5})`;
+      c2d.font = '10px -apple-system, sans-serif';
+      c2d.textAlign = 'center'; c2d.textBaseline = 'top';
+      c2d.fillText(s.name, x, botY + 12);
+
+      // Ripples at pluck points.
+      for (let r = s.ripples.length - 1; r >= 0; r--) {
+        const rp = s.ripples[r];
+        rp.t += dt;
+        const life = 0.55;
+        if (rp.t > life) { s.ripples.splice(r, 1); continue; }
+        const k = rp.t / life;
+        c2d.beginPath();
+        c2d.arc(rp.x, rp.y, 4 + k * 30 * rp.vel, 0, 6.2832);
+        c2d.strokeStyle = pitchColor(s.freq, 0.8, (1 - k) * 0.5 * rp.vel);
+        c2d.lineWidth = 2 * (1 - k);
+        c2d.stroke();
+      }
+
+      // Decay.
+      s.amp *= reduce ? 0.92 : Math.pow(susDecay, dt * 60);
+      if (s.amp < 0.002) s.amp = 0;
+    }
   }
   resize();
   requestAnimationFrame(frame);
 
-  // ---------- Live readouts ----------
-  bri.addEventListener('input', () => { briVal.textContent = (parseFloat(bri.value) / 100).toFixed(2); });
-  sus.addEventListener('input', () => { susVal.textContent = (parseFloat(sus.value) / 1000).toFixed(3); });
-  vol.addEventListener('input', () => {
-    volVal.textContent = vol.value + '%';
-    if (master) master.gain.value = parseFloat(vol.value) / 100;
-  });
-
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && ctx) ctx.suspend();
-    else if (ctx) ctx.resume();
+    if (document.hidden && ctx) ctx.suspend(); else if (ctx) ctx.resume();
   });
+})();
 </script>
-
 </body>
 </html>
