@@ -24,8 +24,15 @@ tests/smoke.mjs`.
 
 - HTML pages that fail to parse (the original "broken Wave Types" bug)
 - Uncaught exceptions during initial render
-- `console.error` calls, except for CDN load failures that come from
-  the host environment rather than our code (those are filtered out)
+- `console.error` calls
+- A script or stylesheet that fails to load, including React, Babel and
+  Tailwind from their CDNs (`SMOKE_ALLOW_OFFLINE=1` ignores these on a
+  machine with no network)
+- Every page again at phone width (390 px, touch): page errors there, and
+  horizontal overflow
+
+`SMOKE_CHANNEL=chrome` runs it in the installed Chrome instead of
+Playwright's bundled Chromium. Audio is muted.
 
 What it does **not** catch: audio output correctness, visual
-regressions, mobile-specific bugs.
+regressions, real-device behaviour.

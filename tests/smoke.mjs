@@ -37,49 +37,82 @@ const pages = [
   'patch.html',
 ];
 
-// The React-based toys load React + Babel from a CDN. In some sandboxed
-// environments those requests fail with cert / network errors that aren't
-// regressions in our code. Filter them out so the test stays meaningful.
+// A script or stylesheet that fails to load (React, Babel or Tailwind from a
+// CDN) fails the page: the toy is broken for visitors too. On a machine with
+// no network, SMOKE_ALLOW_OFFLINE=1 restores the old behaviour of ignoring
+// those failures. SMOKE_CHANNEL=chrome uses the installed Chrome instead of
+// Playwright's bundled Chromium.
+const allowOffline = process.env.SMOKE_ALLOW_OFFLINE === '1';
 const isExternalLoadError = (msg) =>
   /Failed to load resource|net::ERR_|ERR_CERT_/.test(msg);
 
-const browser = await chromium.launch();
-const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+const viewports = [
+  { name: 'desktop', viewport: { width: 1280, height: 800 } },
+  { name: 'phone', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
+];
+
+const browser = await chromium.launch({
+  channel: process.env.SMOKE_CHANNEL || undefined,
+  args: ['--mute-audio'],
+});
 
 let failed = 0;
+let runs = 0;
 
-for (const file of pages) {
-  const page = await ctx.newPage();
-  const issues = [];
-  page.on('pageerror', (e) => issues.push('pageerror: ' + e.message));
-  page.on('console', (m) => {
-    if (m.type() !== 'error') return;
-    if (isExternalLoadError(m.text())) return;
-    issues.push('console.error: ' + m.text());
-  });
+for (const vp of viewports) {
+  const { name, ...options } = vp;
+  const ctx = await browser.newContext(options);
+  for (const file of pages) {
+    runs += 1;
+    const page = await ctx.newPage();
+    const issues = [];
+    page.on('pageerror', (e) => issues.push('pageerror: ' + e.message));
+    page.on('console', (m) => {
+      if (m.type() !== 'error') return;
+      if (allowOffline && isExternalLoadError(m.text())) return;
+      issues.push('console.error: ' + m.text());
+    });
+    page.on('requestfailed', (r) => {
+      if (allowOffline || !['script', 'stylesheet'].includes(r.resourceType())) return;
+      issues.push(`load failed: ${r.url()} (${r.failure()?.errorText})`);
+    });
+    page.on('response', (r) => {
+      const type = r.request().resourceType();
+      if (allowOffline || !['script', 'stylesheet'].includes(type) || r.status() < 400) return;
+      issues.push(`load failed: ${r.url()} (HTTP ${r.status()})`);
+    });
 
-  const url = pathToFileURL(resolve(root, file)).href;
-  try {
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 10000 });
-    await page.waitForTimeout(400);
-  } catch (e) {
-    issues.push('navigation: ' + e.message);
+    const url = pathToFileURL(resolve(root, file)).href;
+    try {
+      await page.goto(url, { waitUntil: 'networkidle', timeout: 15000 });
+      await page.waitForTimeout(400);
+      if (name === 'phone') {
+        // clientWidth, not innerWidth: mobile emulation widens innerWidth to
+        // fit overflowing content, which hides the overflow it should catch.
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        if (overflow > 1) issues.push(`horizontal overflow: ${overflow}px at 390px wide`);
+      }
+    } catch (e) {
+      issues.push('navigation: ' + e.message);
+    }
+
+    if (issues.length) {
+      failed += 1;
+      console.log(`FAIL  ${name.padEnd(7)} ${file}`);
+      for (const i of issues) console.log('      ' + i);
+    } else {
+      console.log(`PASS  ${name.padEnd(7)} ${file}`);
+    }
+    await page.close();
   }
-
-  if (issues.length) {
-    failed += 1;
-    console.log(`FAIL  ${file}`);
-    for (const i of issues) console.log('      ' + i);
-  } else {
-    console.log(`PASS  ${file}`);
-  }
-  await page.close();
+  await ctx.close();
 }
 
 await browser.close();
 
 if (failed > 0) {
-  console.log(`\n${failed} of ${pages.length} pages had issues.`);
+  console.log(`\n${failed} of ${runs} page loads had issues.`);
   process.exit(1);
 }
-console.log(`\nAll ${pages.length} pages OK.`);
+console.log(`\nAll ${runs} page loads OK (${pages.length} pages x ${viewports.length} widths).`);
