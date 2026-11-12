@@ -486,7 +486,7 @@
 
   freqA.addEventListener('input', () => { updateLabels(); applyLive(); });
   freqB.addEventListener('input', () => { updateLabels(); applyLive(); });
-  vol.addEventListener('input', () => { if (master) master.gain.value = parseFloat(vol.value) / 100; });
+  vol.addEventListener('input', () => { if (master) master.gain.setTargetAtTime(parseFloat(vol.value) / 100, ctx.currentTime, 0.02); });
 
   playBtn.addEventListener('click', () => {
     if (playing) stopTones();
