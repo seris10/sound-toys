@@ -403,6 +403,7 @@ const App = () => {
       v.adsrGain.gain.cancelScheduledValues(now);
       v.adsrGain.gain.setValueAtTime(v.adsrGain.gain.value, now);
       v.adsrGain.gain.linearRampToValueAtTime(0, now + 0.03);
+      v.osc.frequency.cancelScheduledValues(now);
     }
 
     const patch = which === 'target' ? targetRef.current : guessRef.current;
