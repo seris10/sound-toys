@@ -287,6 +287,711 @@
   });
 })();
 </script>
+<script>
+/* Budgie listener: classifies microphone phrases (contact call, warble,
+   chatter, startle) with local Web Audio analysis and answers with budgerigar
+   call types. Contact-call replies converge toward the caller's contour.
+   Replies wait for the phrase to end, are cancelled if a new phrase starts,
+   and listening is gated off while any sound is playing. */
+window.createBudgie = function (opts) {
+  const ctx = opts.ctx;
+  const onVisual = opts.onVisual || (() => {});
+  const onStatus = opts.onStatus || (() => {});
+  const onLevel = opts.onLevel || (() => {});
+  const outAn = opts.outputAnalyser || null;
+  const params = { sensitivity: 0.6, chattiness: 0.6, mimicry: 0.5, model: 'research' };
+
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const median = (arr) => { const s = arr.slice().sort((a, b) => a - b); return s.length ? s[s.length >> 1] : 0; };
+  const resample = (arr, n) => {
+    const out = new Array(n);
+    if (!arr.length) return out.fill(0);
+    for (let i = 0; i < n; i++) {
+      const x = arr.length === 1 ? 0 : i * (arr.length - 1) / (n - 1);
+      const a = Math.floor(x), b = Math.min(arr.length - 1, a + 1), t = x - a;
+      out[i] = arr[a] * (1 - t) + arr[b] * t;
+    }
+    return out;
+  };
+  const nowP = () => performance.now() / 1000;
+
+  const bus = ctx.createGain();
+  bus.gain.value = 1;
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -16; comp.ratio.value = 6; comp.attack.value = 0.002; comp.release.value = 0.08;
+  bus.connect(comp); comp.connect(opts.output);
+
+  const mkWave = (imag) => ctx.createPeriodicWave(new Float32Array(imag.length), new Float32Array(imag));
+  const richWave = mkWave([0, 1, 0.6, 0.4, 0.25, 0.15, 0.08, 0.04]);
+  const pureWave = mkWave([0, 1, 0.12, 0.04]);
+  const noiseBuf = (() => {
+    const b = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return b;
+  })();
+
+  const live = new Set();      // scheduled voices, for cancel
+  let timeline = [];           // { t0, t1, curve, amp } for the visualizer
+  let reply = null;            // { start, end, label } on the audio clock
+
+  function syllable(t0, s) {
+    const dur = Math.max(0.012, s.dur);
+    const pts = s.contour.length >= 2 ? s.contour : [s.contour[0], s.contour[0]];
+    const curve = new Float32Array(resample(pts, Math.max(8, pts.length)).map(f => clamp(f, 300, 9500)));
+    const env = ctx.createGain();
+    const att = Math.min(0.006, dur * 0.25), rel = Math.min(0.02, dur * 0.35);
+    env.gain.value = 0;
+    env.gain.setValueAtTime(0, t0);
+    env.gain.linearRampToValueAtTime(s.amp, t0 + att);
+    env.gain.setValueAtTime(s.amp, t0 + dur - rel);
+    env.gain.linearRampToValueAtTime(0, t0 + dur);
+    env.connect(bus);
+    const sources = [], others = [env];
+    const noise = s.noise || 0;
+    if (noise < 0.98) {
+      const osc = ctx.createOscillator();
+      osc.setPeriodicWave(s.rich === false ? pureWave : richWave);
+      osc.frequency.value = curve[0];
+      osc.frequency.setValueCurveAtTime(curve, t0, dur);
+      const g = ctx.createGain(); g.gain.value = 1 - noise;
+      osc.connect(g); g.connect(env); others.push(g);
+      if (s.fmDepth) {
+        const fm = ctx.createOscillator(), fg = ctx.createGain();
+        fm.frequency.value = s.fmRate || 60; fg.gain.value = s.fmDepth;
+        fm.connect(fg); fg.connect(osc.frequency); others.push(fg);
+        fm.start(t0); fm.stop(t0 + dur + 0.03); sources.push(fm);
+      }
+      osc.start(t0); osc.stop(t0 + dur + 0.03); sources.push(osc);
+    }
+    if (noise > 0.02) {
+      const src = ctx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = s.noiseQ || 4;
+      bp.frequency.value = curve[0]; bp.frequency.setValueCurveAtTime(curve, t0, dur);
+      const g = ctx.createGain(); g.gain.value = noise * 2.2;
+      src.connect(bp); bp.connect(g); g.connect(env); others.push(bp, g);
+      src.start(t0, Math.random() * 0.9); src.stop(t0 + dur + 0.03); sources.push(src);
+    }
+    const voice = { env, sources };
+    live.add(voice);
+    sources[sources.length - 1].onended = () => {
+      live.delete(voice);
+      sources.concat(others).forEach(n => { try { n.disconnect(); } catch (e) {} });
+    };
+    timeline.push({ t0, t1: t0 + dur, curve, amp: s.amp });
+  }
+
+  function play(seq, delay, label) {
+    const start = ctx.currentTime + delay;
+    let end = start;
+    seq.forEach(el => { (el.research ? syllableR : syllable)(start + el.at, el); end = Math.max(end, start + el.at + el.dur); });
+    reply = { start, end, label, announced: false };
+  }
+
+  function cancel() {
+    const t = ctx.currentTime;
+    live.forEach(v => {
+      (v.envs || [v.env]).forEach(g => { try { g.gain.cancelScheduledValues(t); g.gain.setTargetAtTime(0, t, 0.004); } catch (e) {} });
+      v.sources.forEach(s => { try { s.stop(t + 0.03); } catch (e) {} });
+    });
+    timeline = [];
+    reply = null;
+  }
+
+
+  /* Research voice model.
+     Sources (values copied from the papers, not tuned by ear):
+     [Tu11]  Tu, Osmanski & Dooling 2011, J Acoust Soc Am 129:2289, Table 1: contact calls and
+             warble elements of 4 birds (duration, peak frequency, frequency range, FM and AM
+             contour rates in Hz).
+     [TSD11] Tu, Smith & Dooling 2011, J Comp Psychol: warble element categories A-G.
+     [Tob19] Tobin, Medina-Garcia, Kohn & Wright 2019, Behav Processes 163:81, Table 5a/5b:
+             first-order transition counts between A-G; Table 1: bout 3.0-3.2 s, 20-26 elements.
+     [Man21] Mann, Fitch, Tu & Hoeschele 2021, Sci Rep 11:776: syllables are a noisy initial
+             segment (34% periodic, 46.7 dB), periodic medial segments (6.5 ms, F0 2522 Hz,
+             56.4 dB) and a final segment (12 ms, F0 2069 Hz, 52.8 dB).
+     [Lav99] Lavenex 1999, J Acoust Soc Am 106:491: budgerigar calls carry amplitude modulation,
+             the product of two signals, whose sum/difference sidebands look like harmonics.
+             The paper's modulator frequency is not in the open abstract; AM_MOD_HZ is an
+             assumption, not a measurement.
+     [Mad23] Madabhushi et al. 2023, J Exp Biol 226:jeb246252: colony-specific repetition
+             patterns disappear after contact (sequence statistics converge).
+     [Hil00] Hile, Plummer & Striedter 2000: mates converge on a shared contact call;
+     [Zha24] Zhao et al. 2024, Curr Biol: shared call types coexist with individual signatures. */
+  const CATS = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+  const TOBIN_FEMALE = [[4,13,11,16,9,2,0],[14,118,42,126,99,17,0],[2,56,64,128,31,17,1],
+    [6,163,123,2174,232,137,6],[19,76,30,253,234,66,2],[1,33,16,131,56,56,2],[0,0,1,7,0,3,0]];
+  const TOBIN_MALE = [[7,12,1,17,7,5,0],[18,300,96,177,89,25,1],[7,58,60,134,20,2,1],
+    [9,221,92,1687,175,107,2],[4,89,14,190,114,31,0],[1,42,6,90,25,48,1],[0,1,1,2,1,0,1]];
+  // Pooled counts plus a Dirichlet(0.5) prior so no transition has probability zero.
+  const baseCounts = TOBIN_FEMALE.map((r, i) => r.map((c, j) => c + TOBIN_MALE[i][j] + 0.5));
+  const heardCounts = CATS.map(() => CATS.map(() => 0));
+  const AM_MOD_HZ = [350, 650];        // assumed range of the second signal in [Lav99]
+  const gauss = (m, sd) => { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random();
+    return m + sd * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const gamma2 = (mean) => -(mean / 2) * Math.log(Math.random() * Math.random() + 1e-12);
+
+  const rowNorm = (r) => { const t = r.reduce((a, b) => a + b, 0); return r.map(x => x / t); };
+  // Convergence [Mad23]: each row mixes toward the transitions heard from the partner,
+  // weighted by how much evidence that row has, n/(n+8), scaled by the Mimicry setting.
+  function transitionMatrix() {
+    return baseCounts.map((r, i) => {
+      const pb = rowNorm(r), n = heardCounts[i].reduce((a, b) => a + b, 0);
+      if (!n) return pb;
+      const ph = rowNorm(heardCounts[i]), lam = 0.7 * params.mimicry * n / (n + 8);
+      return pb.map((x, j) => (1 - lam) * x + lam * ph[j]);
+    });
+  }
+  function stationary(P) {
+    let pi = CATS.map(() => 1 / CATS.length);
+    for (let k = 0; k < 200; k++) pi = CATS.map((_, j) => pi.reduce((a, p, i) => a + p * P[i][j], 0));
+    return pi;
+  }
+  // Conditional Shannon entropy H(S[n+1] | S[n]) in bits.
+  function condEntropy(P, pi) {
+    let h = 0;
+    for (let i = 0; i < P.length; i++) for (let j = 0; j < P.length; j++) if (P[i][j] > 0) h -= pi[i] * P[i][j] * Math.log2(P[i][j]);
+    return h;
+  }
+  function heardEntropy() {
+    const n = heardCounts.flat().reduce((a, b) => a + b, 0);
+    if (n < 6) return null;
+    const rows = heardCounts.map(r => r.reduce((a, b) => a + b, 0));
+    let h = 0;
+    heardCounts.forEach((r, i) => r.forEach(c => { if (c) h -= (c / n) * Math.log2(c / rows[i]); }));
+    return h;
+  }
+  const sampleIdx = (probs) => { let r = Math.random(), i = 0; for (; i < probs.length - 1; i++) { r -= probs[i]; if (r <= 0) break; } return i; };
+
+  // Individual contact call [Tu11]: per-bird means fall in these ranges.
+  const indiv = {
+    fc: rand(2800, 3000), range: rand(1830, 2450), dur: rand(0.129, 0.190),
+    fmHz: rand(7.5, 8.6), fmPhase: rand(0, 2 * Math.PI), amHz: rand(3.0, 5.1), amPhase: rand(0, 2 * Math.PI),
+    amMod: rand(AM_MOD_HZ[0], AM_MOD_HZ[1]),
+  };
+  // Signature contour in octaves relative to fc: individual shape plus a shared part
+  // learned from the partner. share approaches 0.75, never 1, so identity survives [Zha24].
+  const indivShape = Array.from({ length: 24 }, (_, i) =>
+    (indiv.range / 2 / indiv.fc) * Math.sin(2 * Math.PI * indiv.fmHz * indiv.dur * i / 23 + indiv.fmPhase));
+  let sharedShape = indivShape.slice(), share = 0;
+
+  // Envelope curve: raised-cosine onset/offset, per-segment gains, contour AM.
+  function envCurve(dur, peak, amHz, amDepth, amPhase, segGains) {
+    const N = 64, out = new Float32Array(N), atk = Math.min(0.004, dur * 0.3), rel = Math.min(0.008, dur * 0.4);
+    for (let i = 0; i < N; i++) {
+      const t = dur * i / (N - 1);
+      let w = 1;
+      if (t < atk) w = 0.5 - 0.5 * Math.cos(Math.PI * t / atk);
+      else if (t > dur - rel) w = 0.5 - 0.5 * Math.cos(Math.PI * (dur - t) / rel);
+      const seg = segGains ? segGains(t / dur) : 1;
+      const am = 1 - amDepth + amDepth * (0.5 + 0.5 * Math.cos(2 * Math.PI * amHz * t + amPhase));
+      out[i] = Math.max(0, peak * w * seg * am);
+    }
+    out[0] = 0; out[N - 1] = 0;
+    return out;
+  }
+  const dB = (x) => Math.pow(10, x / 20);
+  // [Man21] segment gains relative to the medial segment: initial -9.7 dB, final -3.6 dB.
+  const manSegments = (fracInit, fracFinal) => (u) => u < fracInit ? dB(-9.7) : u > 1 - fracFinal ? dB(-3.6) : 1;
+
+  // x(t) = A(t) [1 + m cos(2 pi fm t)] sin(2 pi integral f) / (1 + m), plus band-limited noise
+  // with its own envelope for consonant-like segments.
+  // Makeup gain so the research voice sits at the same loudness as Classic (measured -4 dB).
+  const rBus = ctx.createGain(); rBus.gain.value = dB(4); rBus.connect(bus);
+  function syllableR(t0, s) {
+    const dur = Math.max(0.003, s.dur);
+    const curve = new Float32Array(resample(s.contour.length >= 2 ? s.contour : [s.contour[0], s.contour[0]], 32).map(f => clamp(f, 300, 9500)));
+    const sources = [], others = [], envs = [];
+    if (s.tonal) {
+      const osc = ctx.createOscillator(); osc.type = 'sine';
+      osc.frequency.value = curve[0]; osc.frequency.setValueCurveAtTime(curve, t0, dur);
+      const am = ctx.createGain(), m = s.amIndex || 0;
+      am.gain.value = 1 / (1 + m);
+      if (m > 0) {
+        const mod = ctx.createOscillator(), mg = ctx.createGain();
+        mod.frequency.value = s.amMod; mg.gain.value = m / (1 + m);
+        mod.connect(mg); mg.connect(am.gain); mod.start(t0); mod.stop(t0 + dur + 0.02);
+        sources.push(mod); others.push(mg);
+      }
+      const env = ctx.createGain(); env.gain.value = 0; env.gain.setValueCurveAtTime(s.tonal, t0, dur);
+      osc.connect(am); am.connect(env); env.connect(rBus);
+      osc.start(t0); osc.stop(t0 + dur + 0.02); sources.push(osc); others.push(am, env); envs.push(env);
+    }
+    if (s.noisy) {
+      const src = ctx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = s.noiseQ || 1;
+      bp.frequency.value = s.noiseHz || curve[0];
+      const env = ctx.createGain(); env.gain.value = 0; env.gain.setValueCurveAtTime(s.noisy, t0, dur);
+      src.connect(bp); bp.connect(env); env.connect(rBus);
+      src.start(t0, Math.random() * 0.9); src.stop(t0 + dur + 0.02); sources.push(src); others.push(bp, env); envs.push(env);
+    }
+    const voice = { envs, sources };
+    live.add(voice);
+    sources[sources.length - 1].onended = () => { live.delete(voice); sources.concat(others).forEach(n => { try { n.disconnect(); } catch (e) {} }); };
+    timeline.push({ t0, t1: t0 + dur, curve, amp: s.peak || 0.15 });
+  }
+
+  // Element generators by [TSD11] category. Durations and frequencies from [Tu11]/[Man21]
+  // where published; "assumed" marks values the papers do not give.
+  function fmContour(fc, range, fmHz, phase, dur, n = 24) {
+    return Array.from({ length: n }, (_, i) => fc + (range / 2) * Math.sin(2 * Math.PI * fmHz * dur * i / (n - 1) + phase));
+  }
+  const RE = {
+    // B contact-call-like warble element [Tu11 warble column]: 124-140 ms, peak 2382-2755 Hz,
+    // range 2364-2768 Hz, FM 6.65-9.43 Hz, AM 3.96-5.22 Hz.
+    B: (at) => { const dur = clamp(gauss(0.130, 0.02), 0.09, 0.3), peak = 0.16;
+      return { research: true, at, dur, peak, amIndex: rand(0.4, 0.8), amMod: rand(AM_MOD_HZ[0], AM_MOD_HZ[1]),
+        contour: fmContour(rand(2380, 2760), rand(2360, 2770), rand(6.6, 9.4), rand(0, 6.28), dur),
+        tonal: envCurve(dur, peak, rand(3.9, 5.3), 0.35, rand(0, 6.28)) }; },
+    // C long harmonic, > 100 ms [TSD11]; AM sidebands supply the harmonic look [Lav99].
+    C: (at) => { const dur = rand(0.11, 0.22), peak = 0.15, f0 = gauss(2522, 181);
+      return { research: true, at, dur, peak, amIndex: rand(0.7, 1.0), amMod: rand(AM_MOD_HZ[0], AM_MOD_HZ[1]),
+        contour: [f0 * 1.02, f0, f0 * 0.97, 2069 / 2522 * f0],
+        tonal: envCurve(dur, peak, rand(3.9, 5.3), 0.2, 0, manSegments(0.08, 0.15)),
+        noisy: envCurve(dur, 0.05, 1, 0, 0, (u) => (u < 0.08 ? 1 : 0)), noiseHz: f0, noiseQ: 1.2 }; },
+    // D short harmonic, < 100 ms [TSD11], built as [Man21] segments: noisy onset, periodic
+    // medial at 2522 Hz, final falling to 2069 Hz (-3.4 semitones).
+    D: (at) => { const dur = rand(0.03, 0.095), peak = 0.15, f0 = gauss(2522, 181), fi = Math.min(0.3, 0.006 / dur), ff = Math.min(0.4, 0.012 / dur);
+      return { research: true, at, dur, peak, amIndex: rand(0.6, 0.95), amMod: rand(AM_MOD_HZ[0], AM_MOD_HZ[1]),
+        contour: [f0, f0, f0 * (1 - 0.4 * ff), 2069 / 2522 * f0],
+        tonal: envCurve(dur, peak, 0, 0, 0, (u) => (u < fi ? 0.3 : manSegments(fi, ff)(u))),
+        noisy: envCurve(dur, 0.07, 1, 0, 0, (u) => (u < fi ? 1 : 0.08)), noiseHz: f0 * 1.2, noiseQ: 0.9 }; },
+    // E noisy broadband, < 70 ms [TSD11].
+    E: (at) => { const dur = rand(0.02, 0.07);
+      return { research: true, at, dur, peak: 0.12, contour: [3000, 3000], noisy: envCurve(dur, 0.16, 0, 0, 0), noiseHz: rand(2500, 4000), noiseQ: 0.6 }; },
+    // F click: extremely short broadband [TSD11]; 7 ms is the shortest note in the 2024
+    // courtship corpus, so 3-8 ms is assumed.
+    F: (at) => { const dur = rand(0.003, 0.008);
+      return { research: true, at, dur, peak: 0.18, contour: [4000, 4000], noisy: envCurve(dur, 0.28, 0, 0, 0), noiseHz: rand(3000, 5000), noiseQ: 0.4 }; },
+    // A alarm-like: loud, broadband, non-harmonic, ~100 ms [TSD11].
+    A: (at) => { const dur = clamp(gauss(0.1, 0.01), 0.08, 0.12), f = rand(2800, 3600);
+      return { research: true, at, dur, peak: 0.22, amIndex: 1, amMod: rand(150, 300),
+        contour: [f * 0.95, f * 1.05, f * 0.9], tonal: envCurve(dur, 0.12, 0, 0, 0),
+        noisy: envCurve(dur, 0.22, 0, 0, 0), noiseHz: f, noiseQ: 0.5 }; },
+    // G pure-tone-like: little or no FM [TSD11]; duration not published, 80-150 ms assumed.
+    G: (at) => { const dur = rand(0.08, 0.15), f = rand(2400, 3000);
+      return { research: true, at, dur, peak: 0.13, contour: [f, f], tonal: envCurve(dur, 0.13, 0, 0, 0) }; },
+  };
+  // The bird's own contact call: shared/individual mix of the signature contour [Tu11 contact column].
+  function contactR(at, vary = 1) {
+    const dur = clamp(indiv.dur * rand(0.95, 1.05), 0.1, 0.3), peak = 0.18;
+    const shape = sharedShape.map((v, i) => (1 - share) * indivShape[i] + share * v);
+    return { research: true, at, dur, peak, amIndex: rand(0.5, 0.8) * vary, amMod: indiv.amMod * rand(0.97, 1.03),
+      contour: shape.map(o => indiv.fc * Math.pow(2, o + rand(-0.004, 0.004) * vary)),
+      tonal: envCurve(dur, peak, indiv.amHz, 0.35, indiv.amPhase) };
+  }
+  function mimicR(at, item) {
+    const c = transpose(item.contour), dur = clamp(item.dur * rand(0.9, 1), 0.06, 1.6), peak = 0.17;
+    return { research: true, at, dur, peak, amIndex: rand(0.4, 0.7), amMod: indiv.amMod, contour: c, tonal: envCurve(dur, peak, indiv.amHz, 0.25, indiv.amPhase) };
+  }
+  // Warble bout: first-order Markov chain over A-G. H = B plus a broadband tail (compound),
+  // I = runs of D/E/F delivered as quick trills [Tob19]. Gaps are gamma-distributed, not on a beat.
+  function warbleR(total) {
+    const P = transitionMatrix(), pi = stationary(P), seq = [];
+    let state = sampleIdx(pi), t = 0, prev = -1;
+    while (t < total) {
+      const cat = CATS[state];
+      const el = RE[cat](t); seq.push(el); t += el.dur;
+      if (cat === 'B' && Math.random() < 0.4) { const tail = RE.E(t); seq.push(tail); t += tail.dur; }
+      const trill = prev >= 0 && 'DEF'.includes(cat) && 'DEF'.includes(CATS[prev]);
+      // Gap means set so a 3.1 s bout carries ~23 elements, Tobin 2019 Table 1 (20.1-26.2).
+      t += trill ? gamma2(0.03) : gamma2(0.1);
+      prev = state; state = sampleIdx(P[state]);
+    }
+    return seq;
+  }
+  function alarmR() { return [RE.A(0), RE.A(0.16), RE.A(0.33)]; }
+  function chatterR() { return warbleR(rand(0.5, 1.1)); }
+  function researchInfo() {
+    const P = transitionMatrix();
+    return { bits: condEntropy(P, stationary(P)), heardBits: heardEntropy(), share: Math.round(share * 100) };
+  }
+
+  // The bird's own contact call: a 16-point shape in semitones around a base.
+  let sigBase = rand(2700, 3300);
+  let sig = (() => {
+    const up = rand(2, 5), down = rand(-5, -2);
+    return resample([down + 1, 0, up, up * 0.6, 0, down], 16).map(v => v + rand(-0.4, 0.4));
+  })();
+  const memory = [];           // remembered contours (Hz) of what it heard
+
+  const fromShape = (shape, base, n = 24) => resample(shape.map(v => base * Math.pow(2, v / 12)), n);
+  const contactEl = (at, vary = 0.6) => ({
+    at, dur: rand(0.11, 0.19), amp: rand(0.15, 0.2), noise: 0.12, rich: true,
+    fmRate: rand(70, 110), fmDepth: rand(60, 160),
+    contour: fromShape(sig.map(v => v + rand(-vary, vary)), sigBase * rand(0.96, 1.04)),
+  });
+  const transpose = (contour) => {
+    const m = median(contour) || 3000;
+    const k = Math.pow(2, Math.round(Math.log2(3200 / m)));
+    return contour.map(f => clamp(f * k, 1200, 7500));
+  };
+  const mimicEl = (at, item, slice) => {
+    let c = item.contour, d = item.dur;
+    if (slice && c.length > 6) {
+      const len = Math.max(4, Math.floor(c.length * rand(0.4, 0.6)));
+      const s0 = Math.floor(Math.random() * (c.length - len));
+      c = c.slice(s0, s0 + len); d = d * len / item.contour.length;
+    }
+    return { at, dur: clamp(d * rand(0.85, 1), 0.06, 1.8), amp: rand(0.14, 0.19), noise: 0.08, rich: true,
+             fmRate: 60, fmDepth: 30, contour: transpose(c) };
+  };
+  const noteEl = (at) => {
+    const f0 = rand(1800, 4200), f1 = f0 * Math.pow(2, rand(-7, 7) / 12);
+    return { at, dur: rand(0.04, 0.12), amp: rand(0.1, 0.17), noise: rand(0, 0.2), rich: true,
+             fmRate: rand(30, 70), fmDepth: rand(50, 250), contour: [f0, (f0 + f1) / 2 * rand(0.95, 1.05), f1] };
+  };
+  const clickEl = (at) => ({ at, dur: rand(0.008, 0.022), amp: rand(0.12, 0.2), noise: 0.9, noiseQ: 1.5,
+                             contour: [rand(3500, 6000), rand(3000, 5000)] });
+  const chirrEl = (at) => { const f = rand(2400, 3600);
+    return { at, dur: rand(0.08, 0.2), amp: 0.12, noise: 0.45, rich: true, fmRate: rand(120, 180),
+             fmDepth: rand(300, 700), contour: [f, f * rand(0.97, 1.03), f * rand(0.95, 1.05)] }; };
+
+  function warble(total) {
+    const seq = []; let t = 0;
+    while (t < total) {
+      const r = Math.random();
+      const frag = memory.length ? params.mimicry * 0.35 : 0;
+      let el;
+      if (r < frag) el = mimicEl(t, memory[Math.floor(Math.random() * memory.length)], true);
+      else if (r < frag + 0.12) el = contactEl(t, 1.5);
+      else if (r < frag + 0.30) el = chirrEl(t);
+      else if (r < frag + 0.42) el = clickEl(t);
+      else el = noteEl(t);
+      seq.push(el);
+      t += el.dur + rand(0.012, 0.07);
+      if (Math.random() < 0.08) t += rand(0.15, 0.35);
+    }
+    return seq;
+  }
+  function chatter(n, endWithContact) {
+    const seq = []; let t = 0;
+    for (let i = 0; i < n; i++) {
+      const r = Math.random();
+      const el = r < 0.5 ? noteEl(t) : r < 0.75 ? clickEl(t) : contactEl(t, 1.2);
+      seq.push(el); t += el.dur + rand(0.05, 0.14);
+    }
+    if (endWithContact) seq.push(contactEl(t + 0.08));
+    return seq;
+  }
+  function alarm() {
+    const seq = []; let t = 0;
+    for (let i = 0; i < 3; i++) {
+      const f = rand(4300, 5000);
+      seq.push({ at: t, dur: rand(0.07, 0.1), amp: 0.22, noise: 0.55, rich: true, fmRate: 140, fmDepth: 500,
+                 contour: [f * 0.92, f * 1.06, f * 0.88] });
+      t += 0.16;
+    }
+    return seq;
+  }
+
+  let stream = null, micSrc = null, hp = null, an = null, td = null, fd = null, outTd = null;
+  let floor = -60, phrase = null, lastOutP = -10, quietUntil = 0, calibrateUntil = 0;
+  let arousal = 0.2, lastTickP = nowP(), lastActivityP = nowP(), nextSpontP = nowP() + 20;
+  let spontCount = 0, lastCallP = -10, lastStatus = '', match = null, hearF = 0;
+  const status = (s) => { if (s !== lastStatus) { lastStatus = s; onStatus(s, { match, arousal }); } };
+
+  async function startListening() {
+    if (stream) return true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      status('This browser gives no microphone access here. Drag to chirp instead.');
+      return false;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false },
+      });
+    } catch (e) {
+      stream = null;
+      status(e && e.name === 'NotAllowedError'
+        ? 'Microphone permission was declined. Drag to chirp instead.'
+        : 'No microphone was found. Drag to chirp instead.');
+      return false;
+    }
+    if (ctx.state === 'suspended') { try { await ctx.resume(); } catch (e) {} }
+    micSrc = ctx.createMediaStreamSource(stream);
+    hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 150;
+    an = ctx.createAnalyser(); an.fftSize = 2048; an.smoothingTimeConstant = 0;
+    micSrc.connect(hp); hp.connect(an);
+    td = new Float32Array(an.fftSize); fd = new Float32Array(an.frequencyBinCount);
+    floor = -60; phrase = null; calibrateUntil = nowP() + 0.8; lastActivityP = nowP(); nextSpontP = nowP() + rand(15, 25); spontCount = 0;
+    status('Listening. Whistle, chirp or warble at it.');
+    return true;
+  }
+
+  function stopListening() {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    try { micSrc && micSrc.disconnect(); hp && hp.disconnect(); } catch (e) {}
+    stream = micSrc = hp = an = null; phrase = null;
+    onLevel(null);
+  }
+
+  // Pitch: spectral peak for whistle-range sounds, autocorrelation below it.
+  function framePitch(sr) {
+    const binHz = sr / an.fftSize;
+    const lo = Math.ceil(300 / binHz), hi = Math.min(Math.floor(9000 / binHz), fd.length - 2);
+    let pk = lo, sum = 0, logSum = 0, pSum = 0;
+    for (let i = lo; i <= hi; i++) {
+      const v = fd[i];
+      if (v > fd[pk]) pk = i;
+      sum += v;
+      const p = Math.pow(10, v / 10) + 1e-20;
+      pSum += p; logSum += Math.log(p);
+    }
+    const n = hi - lo + 1;
+    const flatness = Math.exp(logSum / n) / (pSum / n);
+    const prominence = fd[pk] - sum / n;
+    const a = fd[pk - 1], b = fd[pk], c = fd[pk + 1];
+    const off = (a - 2 * b + c) !== 0 ? 0.5 * (a - c) / (a - 2 * b + c) : 0;
+    let f = (pk + clamp(off, -0.5, 0.5)) * binHz;
+    if (f < 900) {
+      const N = 1024, minLag = Math.floor(sr / 1200), maxLag = Math.floor(sr / 150);
+      let r0 = 0; for (let i = 0; i < N; i++) r0 += td[i] * td[i];
+      let best = 0, bestLag = 0;
+      for (let lag = minLag; lag <= maxLag; lag++) {
+        let r = 0; for (let i = 0; i < N; i++) r += td[i] * td[i + lag];
+        if (r > best) { best = r; bestLag = lag; }
+      }
+      if (r0 > 0 && best / r0 > 0.5) f = sr / bestLag;
+    }
+    return { f, flatness, prominence };
+  }
+
+  function finishPhrase(p) {
+    const dur = p.lastLoud - p.t0 + 0.02;
+    lastActivityP = nowP(); spontCount = 0;
+    nextSpontP = lastActivityP + rand(10, 25) / (0.4 + params.chattiness);
+    if (dur < 0.05 && p.peakDb - floor < 30) { status('Listening.'); return; }
+    // A long sound with almost no level change is a drone (fan, hum), not a call.
+    if (dur > 2 && p.peakDb - p.minDb < 6) { status('Listening. (Ignoring a steady background sound.)'); return; }
+
+    // Contour: tonal frames only, median-smoothed, octave jumps folded.
+    let fs = p.frames.filter(fr => fr.prominence > 12).map(fr => fr.f);
+    fs = fs.map((f, i) => median(fs.slice(Math.max(0, i - 1), i + 2)));
+    for (let i = 1; i < fs.length; i++) {
+      while (fs[i] / fs[i - 1] > 1.7) fs[i] /= 2;
+      while (fs[i - 1] / fs[i] > 1.7) fs[i] *= 2;
+    }
+    const tonalFrac = p.frames.length ? p.frames.filter(fr => fr.prominence > 18).length / p.frames.length : 0;
+    const loud = p.peakDb - floor;
+    const answeredUs = nowP() - lastCallP < 4;
+
+    let type;
+    if (loud > 38 && tonalFrac < 0.3 && dur < 0.35) type = 'startle';
+    else if (dur <= 0.7 && p.syl <= 2 && tonalFrac >= 0.35) type = 'contact';
+    else if (dur >= 1.3 || p.syl >= 5) type = tonalFrac >= 0.25 ? 'warble' : 'chatter';
+    else type = 'chatter';
+
+    let shapeWord = '', hz = 0;
+    if (fs.length >= 3) {
+      hz = median(fs);
+      memory.push({ contour: fs.slice(), dur });
+      if (memory.length > 12) memory.shift();
+      const third = Math.max(1, Math.floor(fs.length / 3));
+      const rise = 12 * Math.log2(median(fs.slice(-third)) / median(fs.slice(0, third)));
+      const inner = fs.slice(third, -third).length ? fs.slice(third, -third) : fs;
+      const midA = 12 * Math.log2(median(inner) / median(fs.slice(0, third)));
+      const midB = 12 * Math.log2(median(inner) / median(fs.slice(-third)));
+      shapeWord = midA > 1.5 && midB > 1.5 ? 'arched' : midA < -1.5 && midB < -1.5 ? 'dipping'
+        : rise > 1.5 ? 'rising' : rise < -1.5 ? 'falling' : 'level';
+    }
+
+    // Research model: label each syllable A-G from its acoustics and learn the transitions.
+    let heardSeq = '';
+    if (params.model === 'research' && p.sylls && p.sylls.length) {
+      const labels = p.sylls.map(classifySyllable);
+      heardSeq = labels.join(' ');
+      for (let i = 1; i < labels.length; i++) heardCounts[CATS.indexOf(labels[i - 1])][CATS.indexOf(labels[i])]++;
+    }
+
+    if (params.model === 'research' && type === 'contact' && fs.length >= 3) {
+      // Shared component converges toward the caller's contour; individual part is kept [Hil00, Zha24].
+      const m = median(fs);
+      const user = resample(fs.map(f => Math.log2(f / m)), 24);
+      const rate = 0.15 + 0.35 * params.mimicry;
+      sharedShape = sharedShape.map((v, i) => v + rate * (user[i] - v));
+      share = share + rate * (0.75 - share);
+      const mine = sharedShape.map((v, i) => (1 - share) * indivShape[i] + share * v);
+      let err = 0; for (let i = 0; i < 24; i++) err += (12 * (user[i] - mine[i])) ** 2;
+      match = Math.round(100 * clamp(1 - Math.sqrt(err / 24) / 6, 0, 1));
+    } else if (type === 'contact' && fs.length >= 3) {
+      // Vocal convergence: the signature contour moves toward the caller's.
+      const m = median(fs);
+      const user = resample(fs.map(f => 12 * Math.log2(f / m)), 16);
+      const rate = 0.2 + 0.3 * params.mimicry;
+      sig = sig.map((v, i) => v + rate * (user[i] - v));
+      let err = 0; for (let i = 0; i < 16; i++) err += (user[i] - sig[i]) ** 2;
+      match = Math.round(100 * clamp(1 - Math.sqrt(err / 16) / 6, 0, 1));
+    }
+
+    arousal = clamp(arousal + ({ contact: 0.15, warble: 0.25, chatter: 0.1, startle: -0.3 }[type]) + (answeredUs ? 0.2 : 0), 0, 1);
+
+    const kHz = hz ? ` around ${(hz / 1000).toFixed(1)} kHz` : '';
+    const R = params.model === 'research';
+    const heard = {
+      contact: `Heard ${/^[aeiou]/.test(shapeWord) ? 'an' : 'a'} ${shapeWord || 'short'} contact call${kHz}`,
+      warble: `Heard warbling (${dur.toFixed(1)} s${heardSeq && heardSeq.length < 40 ? ': ' + heardSeq : ''})`,
+      chatter: `Heard chatter`,
+      startle: `Startled by a loud noise`,
+    }[type];
+
+    if (type === 'startle') {
+      play(R ? alarmR() : alarm(), 0.08, 'Alarm call, then quiet');
+      quietUntil = nowP() + rand(3, 6);
+      status(`${heard}. Alarm call, then it goes quiet.`);
+      return;
+    }
+    if (nowP() < quietUntil) { status(`${heard}, but it is still wary.`); return; }
+
+    const pReply = clamp(0.35 + 0.6 * params.chattiness + 0.2 * arousal, 0, 0.97);
+    if (Math.random() > pReply) { status(`${heard}. It listens and stays quiet.`); return; }
+
+    const speed = 1 - 0.4 * arousal;
+    if (type === 'contact') {
+      const doMimic = fs.length >= 3 && Math.random() < params.mimicry * 0.7;
+      const seq = doMimic ? [R ? mimicR(0, memory[memory.length - 1]) : mimicEl(0, memory[memory.length - 1], false)]
+                          : [R ? contactR(0) : contactEl(0, 0.3)];
+      if (arousal > 0.5 && Math.random() < 0.5) {
+        const t = seq[0].dur + rand(0.08, 0.16);
+        (R ? chatterR() : chatter(Math.floor(rand(2, 4)), false)).forEach(el => { el.at += t; seq.push(el); });
+      }
+      play(seq, rand(0.15, 0.45) * speed, doMimic ? 'Copying your call' : 'Answering with its own contact call');
+    } else if (type === 'warble') {
+      const total = clamp(dur * rand(0.7, 1.3), 1.2, 7) * (0.6 + 0.6 * arousal);
+      play(R ? warbleR(total) : warble(total), rand(0.3, 0.8) * speed, 'Warbling back');
+    } else {
+      play(R ? chatterR() : chatter(Math.floor(rand(3, 8)), Math.random() < 0.5), rand(0.25, 0.6) * speed, 'Chattering back');
+    }
+    status(`${heard}${answeredUs ? ' (you answered it)' : ''}.`);
+  }
+
+  // [TSD11] categories from measured features. Thresholds on duration follow the category
+  // definitions; the tonal/noisy split uses linear spectral flatness and is an engineering choice.
+  function classifySyllable(sy) {
+    const dur = Math.max(0.02, sy.t1 - sy.t0 + 0.02);
+    const fr = sy.frames, flat = median(fr.map(f => f.flatness)), prom = median(fr.map(f => f.prominence));
+    const noisy = flat > 0.3 || prom < 14;
+    const peakDb = Math.max(...fr.map(f => f.db));
+    if (noisy) {
+      if (dur <= 0.02) return 'F';
+      if (dur >= 0.07 && peakDb - floor > 30) return 'A';
+      return 'E';
+    }
+    const fsy = fr.filter(f => f.prominence > 12).map(f => f.f);
+    const rangeSt = fsy.length >= 2 ? 12 * Math.log2(Math.max(...fsy) / Math.min(...fsy)) : 0;
+    if (dur >= 0.06 && rangeSt < 1) return 'G';
+    if (dur >= 0.1 && rangeSt >= 3) return 'B';
+    if (dur >= 0.1) return 'C';
+    return 'D';
+  }
+
+  function tick() {
+    const tP = nowP(), dt = Math.min(0.2, tP - lastTickP); lastTickP = tP;
+    arousal = clamp(arousal * Math.exp(-dt / 90), 0.05, 1);
+    const at = ctx.currentTime;
+
+    // Listening is gated off while the output bus carries sound.
+    if (outAn) {
+      if (!outTd || outTd.length !== outAn.fftSize) outTd = new Float32Array(outAn.fftSize);
+      outAn.getFloatTimeDomainData(outTd);
+      let s = 0; for (let i = 0; i < outTd.length; i += 4) s += outTd[i] * outTd[i];
+      if (Math.sqrt(s / (outTd.length / 4)) > 0.002) lastOutP = tP;
+    }
+    const replying = reply && at >= reply.start && at < reply.end + 0.25;
+    const busy = replying || tP - lastOutP < 0.3;
+    if (reply && !reply.announced && at >= reply.start) { reply.announced = true; onStatus(lastStatus, { match, arousal, replying: reply.label }); }
+    if (reply && at > reply.end + 0.25) { reply = null; lastActivityP = tP; onStatus(lastStatus, { match, arousal, replying: null }); }
+
+    if (an && ctx.state === 'running') {
+      an.getFloatTimeDomainData(td); an.getFloatFrequencyData(fd);
+      let s = 0; for (let i = 0; i < td.length; i++) s += td[i] * td[i];
+      const db = 20 * Math.log10(Math.sqrt(s / td.length) + 1e-9);
+      // Noise floor: falls fast, rises slowly, and keeps rising during a phrase
+      // so a steady room sound cannot hold a phrase open.
+      if (tP < calibrateUntil) floor += (db - floor) * 0.3;
+      else if (!busy) floor += (db - floor) * (db < floor ? 0.2 : phrase ? 0.004 : 0.01);
+      floor = clamp(floor, -85, -20);
+      const onT = Math.max(-75, floor + (20 - 12 * params.sensitivity)), offT = onT - 4;
+      onLevel({ db, floor, on: onT, busy });
+
+      const loudNow = !busy && db > offT;
+      if (!phrase && !busy && tP >= calibrateUntil && db > onT) {
+        // A new phrase before the reply starts cancels the reply.
+        if (reply && at < reply.start) { cancel(); status('You kept going, so it waits.'); }
+        phrase = { t0: tP, lastLoud: tP, frames: [], syl: 0, inSyl: false, peakDb: db, minDb: db, sylls: [] };
+        status('Hearing you…');
+      }
+      if (phrase) {
+        if (loudNow) {
+          const pf = framePitch(ctx.sampleRate);
+          phrase.frames.push(pf);
+          phrase.lastLoud = tP;
+          phrase.peakDb = Math.max(phrase.peakDb, db);
+          phrase.minDb = Math.min(phrase.minDb, db);
+          // Syllable boundaries: a gap, an amplitude valley (8 dB under the syllable peak, then
+          // a 4 dB rise), or a pitch jump over 4 semitones, after the cues in [Man21].
+          let cs = phrase.sylls[phrase.sylls.length - 1];
+          if (phrase.inSyl && cs) {
+            const last = cs.frames[cs.frames.length - 1];
+            if (db < cs.peak - 8) cs.dipped = true;
+            const valley = cs.dipped && db > last.db + 4;
+            const jump = pf.prominence > 12 && last.prominence > 12 && Math.abs(12 * Math.log2(pf.f / last.f)) > 4;
+            if (valley || jump) phrase.inSyl = false;
+          }
+          if (!phrase.inSyl) { phrase.syl++; phrase.inSyl = true; phrase.sylls.push({ t0: tP, t1: tP, frames: [], peak: db, dipped: false }); }
+          cs = phrase.sylls[phrase.sylls.length - 1]; cs.t1 = tP; cs.frames.push(Object.assign({ db }, pf));
+          if (db > cs.peak) { cs.peak = db; cs.dipped = false; }
+          if (pf.prominence > 12) hearF = pf.f;
+        } else if (phrase.inSyl && tP - phrase.lastLoud > 0.03) phrase.inSyl = false;
+        if (tP - phrase.lastLoud > 0.35 || tP - phrase.t0 > 12 || busy) {
+          const p = phrase; phrase = null;
+          if (p.frames.length) finishPhrase(p);
+        }
+      }
+
+      if (!phrase && !busy && !reply && tP > nextSpontP && spontCount < 3 && params.chattiness > 0.05 && tP > quietUntil) {
+        spontCount++;
+        lastCallP = tP;
+        play([params.model === 'research' ? contactR(0) : contactEl(0, 0.3)], 0.02, 'Calling out to you');
+        status(spontCount === 1 ? 'Quiet for a while, so it calls out.' : 'Still calling. Answer it with a chirp.');
+        nextSpontP = tP + rand(10, 25) / (0.4 + params.chattiness);
+      }
+    }
+
+    // Visualizer input: the bird's voice takes priority over the heard phrase.
+    timeline = timeline.filter(e => e.t1 > at - 0.05);
+    const cur = timeline.find(e => at >= e.t0 && at < e.t1);
+    if (cur) {
+      const x = (at - cur.t0) / (cur.t1 - cur.t0) * (cur.curve.length - 1);
+      const i = Math.floor(x), j = Math.min(cur.curve.length - 1, i + 1);
+      onVisual(cur.curve[i] + (cur.curve[j] - cur.curve[i]) * (x - i), clamp(cur.amp * 4.5, 0.2, 1), 'voice');
+    } else if (phrase && hearF) {
+      onVisual(hearF, 0.35, 'hear');
+    } else {
+      onVisual(null, 0, null);
+    }
+  }
+
+  const timer = setInterval(tick, 20);
+
+  return {
+    startListening,
+    stopListening,
+    cancel,
+    setParams: (p) => Object.assign(params, p),
+    info: () => researchInfo(),
+    // Play a full warble bout without listening (used by the Parakeet melody button).
+    performWarble() {
+      const total = params.model === 'research' ? clamp(gauss(3.1, 0.6), 1.8, 5) : rand(2.5, 4);
+      const seq = params.model === 'research' ? warbleR(total) : warble(total);
+      play(seq, 0.05, 'Warbling');
+      return reply.end - ctx.currentTime;
+    },
+    get listening() { return !!stream; },
+    destroy() { clearInterval(timer); cancel(); stopListening(); try { rBus.disconnect(); bus.disconnect(); comp.disconnect(); } catch (e) {} },
+  };
+};
+</script>
 
     <div id="root">
         <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;width:100vw;background:#000;color:#94a3b8;font-family:system-ui,sans-serif;gap:16px">
@@ -538,6 +1243,21 @@
           const [parakeetMode, setParakeetMode] = useState(false);
           // Store pre-parakeet settings so we can restore on exit
           const prePkSettingsRef = useRef(null);
+
+          // Budgie listener (microphone), created on entering parakeet mode
+          const budgieRef = useRef(null);
+          const pointerDownRef = useRef(false);
+          const budgieDrivesVisualRef = useRef(false);
+          const [pkListening, setPkListening] = useState(false);
+          const [pkStatus, setPkStatus] = useState('');
+          const [pkReplying, setPkReplying] = useState(null);
+          const [pkMatch, setPkMatch] = useState(null);
+          const [pkParams, setPkParams] = useState(() => {
+            let model = 'research';
+            try { if (localStorage.getItem('resonance.parakeetModel') === 'classic') model = 'classic'; } catch (e) {}
+            return { sensitivity: 0.6, chattiness: 0.6, mimicry: 0.5, model };
+          });
+          const [pkInfo, setPkInfo] = useState(null);
 
           const [isInteracting, setIsInteracting] = useState(false);
           const [hasStarted, setHasStarted] = useState(false);
@@ -1010,6 +1730,19 @@
             isPlayingMelodyRef.current = false;
             await new Promise(r => setTimeout(r, 50));
 
+            if (pkParams.model === 'research') {
+              try { await initAudio(); } catch (err) { console.error('[audio-diag] melody initAudio FAILED:', err); }
+              const b = ensureBudgie();
+              if (b) {
+                setActiveMelody('parakeet');
+                isPlayingMelodyRef.current = true;
+                const secs = b.performWarble();
+                await new Promise(r => setTimeout(r, secs * 1000 + 300));
+                if (isPlayingMelodyRef.current) { isPlayingMelodyRef.current = false; setActiveMelody(null); }
+                return;
+              }
+            }
+
             setActiveMelody('parakeet');
             setIsInteracting(true);
             isInteractingRef.current = true;
@@ -1122,6 +1855,7 @@
           };
 
           const stopMelody = () => {
+            if (budgieRef.current && activeMelody === 'parakeet') budgieRef.current.cancel();
             isPlayingMelodyRef.current = false;
             parakeetModeRef.current = false;
             silenceParakeetMod();
@@ -1131,8 +1865,86 @@
             triggerNote(targetFreqRef.current, 0);
           };
 
-          const enterParakeetMode = () => {
-            if (!hasStarted) { setHasStarted(true); initAudio(); }
+          const onBudgieVisual = (freq, amp) => {
+            if (pointerDownRef.current) return;
+            if (freq) {
+              targetFreqRef.current = freq;
+              targetAmpRef.current = amp;
+              if (freqDisplayRef.current) freqDisplayRef.current.innerText = Math.round(freq);
+              if (ampDisplayRef.current) ampDisplayRef.current.innerText = Math.round(amp * 100);
+              if (!budgieDrivesVisualRef.current) {
+                budgieDrivesVisualRef.current = true;
+                isInteractingRef.current = true;
+                setIsInteracting(true);
+              }
+            } else if (budgieDrivesVisualRef.current) {
+              budgieDrivesVisualRef.current = false;
+              isInteractingRef.current = false;
+              setIsInteracting(false);
+            }
+          };
+
+          // panelContent renders in both the sidebar and the mobile drawer, so update every meter
+          const onBudgieLevel = (lv) => {
+            document.querySelectorAll('[data-pk-meter]').forEach(el => {
+              if (!lv) { el.style.width = '0%'; return; }
+              const pct = Math.max(0, Math.min(100, (lv.db + 90) / 70 * 100));
+              el.style.width = pct + '%';
+              el.style.background = lv.busy ? '#334155' : lv.db > lv.on ? '#34d399' : '#0e7490';
+            });
+          };
+
+          const ensureBudgie = () => {
+            const ctx = audioCtxRef.current;
+            if (!ctx || !window.createBudgie) return null;
+            if (!budgieRef.current) {
+              budgieRef.current = window.createBudgie({
+                ctx,
+                output: gainNodeRef.current,
+                outputAnalyser: analyserRef.current,
+                onVisual: onBudgieVisual,
+                onLevel: onBudgieLevel,
+                onStatus: (text, info) => {
+                  setPkStatus(text);
+                  if (info) {
+                    if (info.match != null) setPkMatch(info.match);
+                    if ('replying' in info) setPkReplying(info.replying);
+                  }
+                  refreshPkInfo();
+                },
+              });
+              budgieRef.current.setParams(pkParams);
+              refreshPkInfo();
+            }
+            return budgieRef.current;
+          };
+
+          const startBudgie = async () => {
+            if (!ensureBudgie()) return;
+            setPkStatus('Asking for the microphone…');
+            const ok = await budgieRef.current.startListening();
+            setPkListening(ok);
+          };
+
+          const stopBudgie = () => {
+            if (!budgieRef.current) return;
+            budgieRef.current.cancel();
+            budgieRef.current.stopListening();
+            setPkListening(false);
+            setPkReplying(null);
+            onBudgieVisual(null);
+          };
+
+          useEffect(() => {
+            if (budgieRef.current) budgieRef.current.setParams(pkParams);
+            try { localStorage.setItem('resonance.parakeetModel', pkParams.model); } catch (e) {}
+          }, [pkParams]);
+
+          const refreshPkInfo = () => { if (budgieRef.current && budgieRef.current.info) setPkInfo(budgieRef.current.info()); };
+
+          const enterParakeetMode = async () => {
+            if (!hasStarted) setHasStarted(true);
+            try { await initAudio(); } catch (err) { console.error('[audio-diag] parakeet initAudio FAILED:', err); }
             if (isPlayingMelodyRef.current) stopMelody();
 
             // Save current settings before overriding
@@ -1176,9 +1988,11 @@
 
             parakeetModeRef.current = true;
             setParakeetMode(true);
+            setPkStatus('');
           };
 
           const exitParakeetMode = () => {
+            stopBudgie();
             parakeetModeRef.current = false;
             setParakeetMode(false);
 
@@ -1211,6 +2025,8 @@
           };
 
           const handlePointerDown = async (e) => {
+            pointerDownRef.current = true;
+            budgieDrivesVisualRef.current = false;
             if (isPlayingMelodyRef.current) stopMelody();
             if (!hasStarted) {
               setHasStarted(true);
@@ -1256,6 +2072,7 @@
           };
 
           const handlePointerUp = () => {
+            pointerDownRef.current = false;
             if (isPlayingMelodyRef.current) return;
             setIsInteracting(false);
             isInteractingRef.current = false;
@@ -1627,6 +2444,7 @@ for (let j = 0; j < 4; j++) {
 
           useEffect(() => {
             return () => {
+              if (budgieRef.current) budgieRef.current.destroy();
               if (lfoOscRef.current) { lfoOscRef.current.stop(); lfoOscRef.current.disconnect(); }
               if (fmOscRef.current) { fmOscRef.current.stop(); fmOscRef.current.disconnect(); }
               if (amOscRef.current) { amOscRef.current.stop(); amOscRef.current.disconnect(); }
@@ -1663,6 +2481,69 @@ for (let j = 0; j < 4; j++) {
                               <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
                             </div>
                             <p className="text-[10px] text-slate-500 mb-2">Drag across the canvas to chirp. Left = low warble, right = high alarm. Up = louder.</p>
+                            <div className="mb-3 p-2 rounded-lg border border-emerald-900/40 bg-emerald-950/20">
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <span className="text-[10px] font-semibold text-emerald-400/90">Voice model</span>
+                                <div className="flex gap-1">
+                                  {[['research', 'Research'], ['classic', 'Classic']].map(([k, label]) => (
+                                    <button key={k}
+                                      className={`filter-type-btn ${pkParams.model === k ? 'active' : ''}`}
+                                      onClick={() => { budgieRef.current && budgieRef.current.cancel(); setPkParams(p => ({ ...p, model: k })); }}
+                                    >{label}</button>
+                                  ))}
+                                </div>
+                              </div>
+                              <p className="text-[10px] text-slate-500 leading-snug mb-2">
+                                {pkParams.model === 'research'
+                                  ? 'Built from published budgerigar measurements: call timing and pitch (Tu et al. 2011), warble element order as a Markov chain (Tobin et al. 2019), syllable segments (Mann et al. 2021), and amplitude-modulation sidebands (Lavenex 1999).'
+                                  : 'The original parakeet voice: harmonic oscillator with FM wobble and randomly ordered elements.'}
+                              </p>
+                              {pkParams.model === 'research' && pkInfo && (
+                                <p className="text-[10px] text-emerald-500/70 font-mono mb-2 leading-snug">
+                                  Warble predictability: {pkInfo.bits.toFixed(2)} bits/element
+                                  {pkInfo.heardBits != null ? ` · yours: ${pkInfo.heardBits.toFixed(2)}` : ''}
+                                  {pkInfo.share ? ` · call shared: ${pkInfo.share}%` : ''}
+                                </p>
+                              )}
+                              <div className="flex items-center justify-between gap-2 mb-1.5">
+                                <span className="text-[10px] font-semibold text-emerald-400/90">
+                                  {pkListening ? (pkReplying ? 'Answering' : 'Listening') : 'Microphone off'}
+                                </span>
+                                <button
+                                  onClick={() => pkListening ? stopBudgie() : startBudgie()}
+                                  className={`filter-type-btn ${pkListening ? 'active' : ''}`}
+                                >{pkListening ? 'Stop listening' : 'Listen'}</button>
+                              </div>
+                              <div className="h-1 w-full rounded bg-slate-900 overflow-hidden mb-1.5">
+                                <div data-pk-meter="" className="h-full" style={{ width: '0%', transition: 'width 60ms linear' }} />
+                              </div>
+                              <p className="text-[10px] text-slate-400 leading-snug min-h-[28px]">
+                                {pkReplying ? `${pkReplying}. ` : ''}{pkStatus || 'Whistle, chirp or warble at it and it answers.'}
+                              </p>
+                              {pkMatch != null && (
+                                <p className="text-[10px] text-emerald-500/70 font-mono mt-1">Its call matches yours: {pkMatch}%</p>
+                              )}
+                              <div className="flex flex-col gap-1 mt-2">
+                                <div className="param-row">
+                                  <span className="param-label">Hearing</span>
+                                  <input type="range" min="0" max="1" step="0.01" value={pkParams.sensitivity}
+                                    onChange={e => { const v = parseFloat(e.target.value); setPkParams(p => ({ ...p, sensitivity: v })); }} />
+                                  <span className="param-value">{(pkParams.sensitivity * 100).toFixed(0)}%</span>
+                                </div>
+                                <div className="param-row">
+                                  <span className="param-label">Chatty</span>
+                                  <input type="range" min="0" max="1" step="0.01" value={pkParams.chattiness}
+                                    onChange={e => { const v = parseFloat(e.target.value); setPkParams(p => ({ ...p, chattiness: v })); }} />
+                                  <span className="param-value">{(pkParams.chattiness * 100).toFixed(0)}%</span>
+                                </div>
+                                <div className="param-row">
+                                  <span className="param-label">Mimicry</span>
+                                  <input type="range" min="0" max="1" step="0.01" value={pkParams.mimicry}
+                                    onChange={e => { const v = parseFloat(e.target.value); setPkParams(p => ({ ...p, mimicry: v })); }} />
+                                  <span className="param-value">{(pkParams.mimicry * 100).toFixed(0)}%</span>
+                                </div>
+                              </div>
+                            </div>
                             <div className="flex flex-col gap-1">
                               <div className="param-row">
                                 <span className="param-label">Vibrato</span>
@@ -2090,6 +2971,18 @@ for (let j = 0; j < 4; j++) {
                       </div>
                     ))}
                   </div>
+                )}
+
+                {parakeetMode && (
+                  <button
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => pkListening ? stopBudgie() : startBudgie()}
+                    className="absolute top-16 left-1/2 -translate-x-1/2 z-[5] flex items-center gap-2 max-w-[92%] px-3 py-1.5 rounded-full bg-black/70 border border-emerald-800/50 text-[11px] text-emerald-300/80 backdrop-blur-sm"
+                    title={pkListening ? 'Stop listening' : 'Listen through the microphone'}
+                  >
+                    <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${pkListening ? (pkReplying ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse') : 'bg-slate-600'}`} />
+                    <span className="truncate">{pkListening ? (pkReplying || pkStatus || 'Listening') : (pkStatus || 'Listen: off. Tap to let it hear you')}</span>
+                  </button>
                 )}
 
                 </div>
