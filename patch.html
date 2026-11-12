@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Patch - Daily Sound Match</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            background-color: #000000;
+            color: white;
+            touch-action: manipulation;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #root { width: 100vw; min-height: 100vh; }
+
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px; width: 16px;
+            border-radius: 50%;
+            background: #06b6d4;
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.8);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 4px;
+            cursor: pointer;
+            background: #1e293b;
+            border-radius: 2px;
+        }
+        .hbar { transition: height 0.08s linear; }
+    </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+(function () {
+  var AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return;
+  var unlocked = false;
+  function unlock() {
+    if (unlocked) return;
+    unlocked = true;
+    var ctx = window.__patchCtx;
+    if (ctx && ctx.state === 'suspended') ctx.resume();
+  }
+  ['touchend', 'touchstart', 'pointerdown', 'mousedown', 'click', 'keydown'].forEach(function (ev) {
+    document.addEventListener(ev, unlock, { passive: true });
+  });
+})();
+</script>
+
+<script type="text/babel">
+const { useState, useRef, useEffect, useCallback } = React;
+
+const N_PARTIALS = 8;
+const MAX_SAFE_GAIN = 0.25;
+
+const CUTOFF_MIN = 200;
+const CUTOFF_MAX = 8000;
+
+const RANGES = {
+  a: [0.005, 0.5],
+  d: [0.02, 0.8],
+  s: [0.0, 1.0],
+  r: [0.02, 1.0],
+};
+
+const PHRASE = [
+  { freq: 261.63, on: 0.34, off: 0.16 },
+  { freq: 261.63, on: 0.34, off: 0.16 },
+  { freq: 392.00, on: 0.34, off: 0.16 },
+  { freq: 261.63, on: 0.90, off: 0.55 },
+];
+
+function mulberry32(seed) {
+  return function () {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function todaySeed() {
+  const d = new Date();
+  return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+}
+
+function todayLabel() {
+  const d = new Date();
+  return d.toISOString().slice(0, 10);
+}
+
+const ARCHETYPES = [
+  { name: 'brass',  h: [1.0, 0.7, 0.5, 0.38, 0.28, 0.2, 0.14, 0.1] },
+  { name: 'reed',   h: [1.0, 0.05, 0.62, 0.04, 0.35, 0.03, 0.2, 0.02] },
+  { name: 'bell',   h: [1.0, 0.0, 0.3, 0.0, 0.55, 0.0, 0.18, 0.0] },
+  { name: 'string', h: [1.0, 0.5, 0.33, 0.25, 0.2, 0.16, 0.14, 0.12] },
+  { name: 'hollow', h: [1.0, 0.02, 0.45, 0.02, 0.22, 0.02, 0.11, 0.02] },
+  { name: 'soft',   h: [1.0, 0.28, 0.09, 0.04, 0.02, 0.01, 0.0, 0.0] },
+];
+
+function makePatch(rand) {
+  const arch = ARCHETYPES[Math.floor(rand() * ARCHETYPES.length)];
+  const h = arch.h.map((v) => {
+    if (v === 0) return Math.round(rand() * 0.12 * 100) / 100;
+    const jitter = 0.72 + rand() * 0.56;
+    return Math.round(Math.min(1, v * jitter) * 100) / 100;
+  });
+  h[0] = 1.0;
+
+  const pick = (k) => {
+    const [lo, hi] = RANGES[k];
+    return Math.round((lo + rand() * (hi - lo)) * 1000) / 1000;
+  };
+
+  return {
+    h,
+    adsr: { a: pick('a'), d: pick('d'), s: pick('s'), r: pick('r') },
+    cutoff: Math.round(CUTOFF_MIN * Math.pow(CUTOFF_MAX / CUTOFF_MIN, rand())),
+    q: Math.round(rand() * 0.75 * 100) / 100,
+    archetype: arch.name,
+  };
+}
+
+function defaultPatch() {
+  return {
+    h: [1, 0, 0, 0, 0, 0, 0, 0],
+    adsr: { a: 0.01, d: 0.1, s: 0.7, r: 0.15 },
+    cutoff: 4000,
+    q: 0,
+  };
+}
+
+function makeVoice(ctx) {
+  const osc = ctx.createOscillator();
+  const filter = ctx.createBiquadFilter();
+  const adsrGain = ctx.createGain();
+  const masterGain = ctx.createGain();
+
+  osc.type = 'sine';
+  osc.frequency.value = 261.63;
+
+  filter.type = 'lowpass';
+  filter.frequency.value = 4000;
+  filter.Q.value = 0;
+
+  adsrGain.gain.value = 0;
+  masterGain.gain.value = 0;
+
+  osc.connect(filter);
+  filter.connect(adsrGain);
+  adsrGain.connect(masterGain);
+  masterGain.connect(ctx.destination);
+  osc.start();
+
+  return { osc, filter, adsrGain, masterGain };
+}
+
+function applyHarmonics(ctx, voice, h) {
+  const real = new Float32Array(h.length + 1);
+  const imag = new Float32Array(h.length + 1);
+  real[0] = 0; imag[0] = 0;
+  for (let i = 0; i < h.length; i++) {
+    real[i + 1] = 0;
+    imag[i + 1] = h[i];
+  }
+  const wave = ctx.createPeriodicWave(real, imag, { disableNormalization: false });
+  voice.osc.setPeriodicWave(wave);
+}
+
+function schedulePhrase(ctx, voice, patch, startAt) {
+  const { adsr } = patch;
+  let t = startAt;
+
+  voice.filter.frequency.cancelScheduledValues(t);
+  voice.filter.frequency.setValueAtTime(patch.cutoff, t);
+  voice.filter.Q.cancelScheduledValues(t);
+  voice.filter.Q.setValueAtTime(patch.q * 25, t);
+
+  const g = voice.adsrGain.gain;
+  g.cancelScheduledValues(t);
+  g.setValueAtTime(0, t);
+
+  for (const note of PHRASE) {
+    voice.osc.frequency.setValueAtTime(note.freq, t);
+
+    const peak = MAX_SAFE_GAIN;
+    const sustainLevel = peak * adsr.s;
+
+    const attackEnd = t + Math.min(adsr.a, note.on);
+    g.linearRampToValueAtTime(peak, attackEnd);
+
+    const decayEnd = Math.min(attackEnd + adsr.d, t + note.on);
+    g.linearRampToValueAtTime(sustainLevel, decayEnd);
+
+    const noteOff = t + note.on;
+    if (decayEnd < noteOff) g.setValueAtTime(sustainLevel, noteOff);
+
+    const releaseEnd = Math.min(noteOff + adsr.r, noteOff + note.off);
+    g.linearRampToValueAtTime(0, releaseEnd);
+    if (releaseEnd < noteOff + note.off) g.setValueAtTime(0, noteOff + note.off);
+
+    t = noteOff + note.off;
+  }
+
+  return t - startAt;
+}
+
+function normalizeH(h) {
+  const max = Math.max(...h.map(Math.abs), 1e-6);
+  return h.map((v) => v / max);
+}
+
+function scorePatch(target, guess) {
+  const ta = normalizeH(target.h);
+  const ga = normalizeH(guess.h);
+  let hDiff = 0;
+  for (let i = 0; i < ta.length; i++) hDiff += Math.abs(ta[i] - ga[i]);
+  const hScore = Math.max(0, 1 - hDiff / ta.length / 0.55);
+
+  const adsrParts = {};
+  let adsrSum = 0;
+  for (const k of ['a', 'd', 's', 'r']) {
+    const [lo, hi] = RANGES[k];
+    const span = hi - lo;
+    const diff = Math.abs(target.adsr[k] - guess.adsr[k]) / span;
+    const s = Math.max(0, 1 - diff / 0.5);
+    adsrParts[k] = s;
+    adsrSum += s;
+  }
+  const adsrScore = adsrSum / 4;
+
+  const lt = Math.log(target.cutoff / CUTOFF_MIN) / Math.log(CUTOFF_MAX / CUTOFF_MIN);
+  const lg = Math.log(guess.cutoff / CUTOFF_MIN) / Math.log(CUTOFF_MAX / CUTOFF_MIN);
+  const cutoffScore = Math.max(0, 1 - Math.abs(lt - lg) / 0.4);
+
+  const qScore = Math.max(0, 1 - Math.abs(target.q - guess.q) / 0.5);
+
+  const total = hScore * 0.45 + adsrScore * 0.3 + cutoffScore * 0.17 + qScore * 0.08;
+
+  return {
+    total: Math.round(total * 100),
+    parts: {
+      harmonics: Math.round(hScore * 100),
+      envelope: Math.round(adsrScore * 100),
+      filter: Math.round(cutoffScore * 100),
+      resonance: Math.round(qScore * 100),
+    },
+    adsrParts,
+  };
+}
+
+function grade(n) {
+  if (n >= 95) return { label: 'Perfect ear', color: 'text-emerald-400' };
+  if (n >= 85) return { label: 'Excellent', color: 'text-emerald-400' };
+  if (n >= 70) return { label: 'Good', color: 'text-cyan-400' };
+  if (n >= 50) return { label: 'Close', color: 'text-amber-400' };
+  return { label: 'Keep listening', color: 'text-slate-400' };
+}
+
+function blocks(n) {
+  if (n >= 90) return '🟩';
+  if (n >= 70) return '🟦';
+  if (n >= 45) return '🟨';
+  return '⬛';
+}
+
+const Bars = ({ values, targetValues, onChange, disabled }) => {
+  const dragRef = useRef(false);
+  const wrapRef = useRef(null);
+
+  const setFromEvent = (e) => {
+    if (disabled || !onChange) return;
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+    const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+    const idx = Math.floor((cx / rect.width) * values.length);
+    if (idx < 0 || idx >= values.length) return;
+    const v = Math.max(0, Math.min(1, 1 - cy / rect.height));
+    const next = values.slice();
+    next[idx] = Math.round(v * 100) / 100;
+    onChange(next);
+  };
+
+  return (
+    <div
+      ref={wrapRef}
+      className="relative flex gap-1 h-28 items-end touch-none"
+      onPointerDown={(e) => { dragRef.current = true; e.currentTarget.setPointerCapture(e.pointerId); setFromEvent(e); }}
+      onPointerMove={(e) => { if (dragRef.current) setFromEvent(e); }}
+      onPointerUp={() => { dragRef.current = false; }}
+      onPointerCancel={() => { dragRef.current = false; }}
+    >
+      {values.map((v, i) => (
+        <div key={i} className="flex-1 relative h-full bg-slate-900/70 rounded-sm overflow-hidden">
+          {targetValues && (
+            <div
+              className="absolute left-0 right-0 border-t-2 border-emerald-400/80"
+              style={{ bottom: `${targetValues[i] * 100}%` }}
+            />
+          )}
+          <div
+            className="hbar absolute bottom-0 left-0 right-0 bg-cyan-500/80"
+            style={{ height: `${v * 100}%` }}
+          />
+          <div className="absolute bottom-0 left-0 right-0 text-center text-[9px] text-slate-500 pb-0.5">{i + 1}</div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const Slider = ({ label, value, min, max, step, onChange, format, disabled, targetValue }) => (
+  <div className="flex items-center gap-2">
+    <span className="text-[10px] uppercase tracking-wider text-slate-500 w-16 shrink-0">{label}</span>
+    <div className="flex-1 relative">
+      <input
+        type="range" min={min} max={max} step={step} value={value} disabled={disabled}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="w-full"
+      />
+      {targetValue !== undefined && (
+        <div
+          className="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 bg-emerald-400 pointer-events-none"
+          style={{ left: `${((targetValue - min) / (max - min)) * 100}%` }}
+        />
+      )}
+    </div>
+    <span className="text-[10px] text-slate-400 w-14 text-right tabular-nums shrink-0">{format(value)}</span>
+  </div>
+);
+
+const App = () => {
+  const ctxRef = useRef(null);
+  const targetVoiceRef = useRef(null);
+  const playerVoiceRef = useRef(null);
+  const stopTimerRef = useRef(null);
+
+  const [mode, setMode] = useState('daily');
+  const [seed, setSeed] = useState(todaySeed());
+  const [target, setTarget] = useState(() => makePatch(mulberry32(todaySeed())));
+  const [guess, setGuess] = useState(defaultPatch);
+  const [submitted, setSubmitted] = useState(false);
+  const [result, setResult] = useState(null);
+  const [playing, setPlaying] = useState(null);
+  const [started, setStarted] = useState(false);
+  const [listens, setListens] = useState(0);
+  const [copied, setCopied] = useState(false);
+
+  const guessRef = useRef(guess);
+  useEffect(() => { guessRef.current = guess; }, [guess]);
+  const targetRef = useRef(target);
+  useEffect(() => { targetRef.current = target; }, [target]);
+
+  const ensureAudio = useCallback(async () => {
+    if (ctxRef.current) {
+      if (ctxRef.current.state === 'suspended') await ctxRef.current.resume();
+      return ctxRef.current;
+    }
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioContext();
+    if (ctx.state === 'suspended') await ctx.resume();
+    ctxRef.current = ctx;
+    window.__patchCtx = ctx;
+    targetVoiceRef.current = makeVoice(ctx);
+    playerVoiceRef.current = makeVoice(ctx);
+    return ctx;
+  }, []);
+
+  const play = useCallback(async (which) => {
+    const ctx = await ensureAudio();
+    setStarted(true);
+
+    if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
+
+    const tv = targetVoiceRef.current;
+    const pv = playerVoiceRef.current;
+    const now = ctx.currentTime;
+
+    for (const v of [tv, pv]) {
+      v.masterGain.gain.cancelScheduledValues(now);
+      v.masterGain.gain.setValueAtTime(0, now);
+      v.adsrGain.gain.cancelScheduledValues(now);
+      v.adsrGain.gain.setValueAtTime(0, now);
+    }
+
+    const patch = which === 'target' ? targetRef.current : guessRef.current;
+    const voice = which === 'target' ? tv : pv;
+
+    applyHarmonics(ctx, voice, patch.h);
+    voice.masterGain.gain.setValueAtTime(1, now);
+    const dur = schedulePhrase(ctx, voice, patch, now + 0.05);
+
+    if (which === 'target') setListens((n) => n + 1);
+    setPlaying(which);
+    stopTimerRef.current = setTimeout(() => setPlaying(null), (dur + 0.1) * 1000);
+  }, [ensureAudio]);
+
+  const stop = useCallback(() => {
+    const ctx = ctxRef.current;
+    if (!ctx) return;
+    if (stopTimerRef.current) clearTimeout(stopTimerRef.current);
+    const now = ctx.currentTime;
+    for (const v of [targetVoiceRef.current, playerVoiceRef.current]) {
+      if (!v) continue;
+      v.masterGain.gain.cancelScheduledValues(now);
+      v.masterGain.gain.linearRampToValueAtTime(0, now + 0.05);
+      v.adsrGain.gain.cancelScheduledValues(now);
+      v.adsrGain.gain.setValueAtTime(0, now + 0.06);
+    }
+    setPlaying(null);
+  }, []);
+
+  const submit = () => {
+    setResult(scorePatch(target, guess));
+    setSubmitted(true);
+    stop();
+  };
+
+  const newRound = () => {
+    const s = Math.floor(Math.random() * 1e9);
+    setSeed(s);
+    setMode('free');
+    setTarget(makePatch(mulberry32(s)));
+    setGuess(defaultPatch());
+    setSubmitted(false);
+    setResult(null);
+    setListens(0);
+    setCopied(false);
+    stop();
+  };
+
+  const backToDaily = () => {
+    const s = todaySeed();
+    setSeed(s);
+    setMode('daily');
+    setTarget(makePatch(mulberry32(s)));
+    setGuess(defaultPatch());
+    setSubmitted(false);
+    setResult(null);
+    setListens(0);
+    setCopied(false);
+    stop();
+  };
+
+  const share = () => {
+    if (!result) return;
+    const p = result.parts;
+    const text =
+      `Patch ${todayLabel()} — ${result.total}%\n` +
+      `${blocks(p.harmonics)}${blocks(p.envelope)}${blocks(p.filter)}${blocks(p.resonance)}\n` +
+      `${listens} listen${listens === 1 ? '' : 's'}`;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  useEffect(() => () => { if (stopTimerRef.current) clearTimeout(stopTimerRef.current); }, []);
+
+  const setAdsr = (k, v) => setGuess((g) => ({ ...g, adsr: { ...g.adsr, [k]: v } }));
+  const g = result ? grade(result.total) : null;
+
+  return (
+    <div className="min-h-screen bg-black text-white flex flex-col">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800/80">
+        <div className="flex items-baseline gap-3">
+          <span className="text-sm font-semibold tracking-tight">Patch</span>
+          <span className="text-[10px] uppercase tracking-widest text-slate-500">
+            {mode === 'daily' ? todayLabel() : 'Free play'}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {mode === 'free' && (
+            <button onClick={backToDaily} className="text-[10px] uppercase tracking-wider px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-slate-200">
+              Daily
+            </button>
+          )}
+          <button onClick={newRound} className="text-[10px] uppercase tracking-wider px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-slate-200">
+            New patch
+          </button>
+          <a href="index.html" className="text-[10px] uppercase tracking-wider px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-slate-200">
+            Toys
+          </a>
+        </div>
+      </div>
+
+      <div className="px-4 py-3 border-b border-slate-800/80">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => play('target')}
+            className={`px-4 py-2 rounded text-sm font-medium border transition-colors ${
+              playing === 'target'
+                ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                : 'bg-emerald-600/10 border-emerald-700 text-emerald-400 hover:bg-emerald-600/20'
+            }`}
+          >
+            ▶ Target
+          </button>
+          <button
+            onClick={() => play('player')}
+            className={`px-4 py-2 rounded text-sm font-medium border transition-colors ${
+              playing === 'player'
+                ? 'bg-cyan-500/20 border-cyan-500 text-cyan-300'
+                : 'bg-cyan-600/10 border-cyan-700 text-cyan-400 hover:bg-cyan-600/20'
+            }`}
+          >
+            ▶ Yours
+          </button>
+          <button onClick={stop} className="px-3 py-2 rounded text-sm border border-slate-700 text-slate-400 hover:text-slate-200">
+            ■
+          </button>
+          <span className="text-[11px] text-slate-500 ml-1">
+            {started ? `${listens} listen${listens === 1 ? '' : 's'}` : 'Tap Target to hear the sound you’re rebuilding'}
+          </span>
+          <div className="flex-1" />
+          {!submitted ? (
+            <button
+              onClick={submit}
+              className="px-5 py-2 rounded text-sm font-semibold bg-white text-black hover:bg-slate-200"
+            >
+              Submit
+            </button>
+          ) : (
+            <button onClick={share} className="px-5 py-2 rounded text-sm font-semibold border border-slate-600 hover:bg-slate-800">
+              {copied ? 'Copied' : 'Share'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {submitted && result && (
+        <div className="px-4 py-3 border-b border-slate-800/80 bg-slate-950/60">
+          <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+            <div className="flex items-baseline gap-2">
+              <span className={`text-3xl font-bold tabular-nums ${g.color}`}>{result.total}%</span>
+              <span className={`text-sm ${g.color}`}>{g.label}</span>
+            </div>
+            <div className="flex gap-4 text-[11px] text-slate-400">
+              <span>Harmonics <b className="text-slate-200 tabular-nums">{result.parts.harmonics}</b></span>
+              <span>Envelope <b className="text-slate-200 tabular-nums">{result.parts.envelope}</b></span>
+              <span>Filter <b className="text-slate-200 tabular-nums">{result.parts.filter}</b></span>
+              <span>Resonance <b className="text-slate-200 tabular-nums">{result.parts.resonance}</b></span>
+            </div>
+            <span className="text-[11px] text-slate-600">
+              green marks = target · it was a <b className="text-slate-400">{target.archetype}</b> patch
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-4 px-4 py-4">
+        <div className="space-y-2">
+          <div className="text-[10px] uppercase tracking-widest text-slate-500">
+            Harmonics — drag to shape
+          </div>
+          <Bars
+            values={guess.h}
+            targetValues={submitted ? normalizeH(target.h) : null}
+            onChange={(h) => setGuess((prev) => ({ ...prev, h }))}
+            disabled={submitted}
+          />
+          <div className="text-[10px] text-slate-600 leading-relaxed">
+            Bar 1 is the fundamental. Even partials add hollowness, odd partials add reediness.
+            Rolling off the top bars makes it darker.
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <div className="text-[10px] uppercase tracking-widest text-slate-500">Envelope</div>
+            <Slider label="Attack" value={guess.adsr.a} min={RANGES.a[0]} max={RANGES.a[1]} step={0.005}
+              onChange={(v) => setAdsr('a', v)} disabled={submitted}
+              targetValue={submitted ? target.adsr.a : undefined}
+              format={(v) => `${Math.round(v * 1000)}ms`} />
+            <Slider label="Decay" value={guess.adsr.d} min={RANGES.d[0]} max={RANGES.d[1]} step={0.005}
+              onChange={(v) => setAdsr('d', v)} disabled={submitted}
+              targetValue={submitted ? target.adsr.d : undefined}
+              format={(v) => `${Math.round(v * 1000)}ms`} />
+            <Slider label="Sustain" value={guess.adsr.s} min={RANGES.s[0]} max={RANGES.s[1]} step={0.01}
+              onChange={(v) => setAdsr('s', v)} disabled={submitted}
+              targetValue={submitted ? target.adsr.s : undefined}
+              format={(v) => `${Math.round(v * 100)}%`} />
+            <Slider label="Release" value={guess.adsr.r} min={RANGES.r[0]} max={RANGES.r[1]} step={0.005}
+              onChange={(v) => setAdsr('r', v)} disabled={submitted}
+              targetValue={submitted ? target.adsr.r : undefined}
+              format={(v) => `${Math.round(v * 1000)}ms`} />
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-[10px] uppercase tracking-widest text-slate-500">Filter</div>
+            <Slider label="Cutoff" value={guess.cutoff} min={CUTOFF_MIN} max={CUTOFF_MAX} step={10}
+              onChange={(v) => setGuess((p) => ({ ...p, cutoff: v }))} disabled={submitted}
+              targetValue={submitted ? target.cutoff : undefined}
+              format={(v) => `${Math.round(v)}Hz`} />
+            <Slider label="Resonance" value={guess.q} min={0} max={1} step={0.01}
+              onChange={(v) => setGuess((p) => ({ ...p, q: v }))} disabled={submitted}
+              targetValue={submitted ? target.q : undefined}
+              format={(v) => v.toFixed(2)} />
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 py-3 border-t border-slate-800/80 text-[11px] text-slate-600 leading-relaxed">
+        Same notes every time — only the timbre differs. Listen as many times as you want; there is no clock.
+      </div>
+    </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
