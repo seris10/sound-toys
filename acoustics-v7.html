@@ -769,6 +769,7 @@
             if (!audioState.ctx) return;
             try {
                 audioState.gain.gain.cancelScheduledValues(audioState.ctx.currentTime);
+                audioState.gain.gain.setValueAtTime(audioState.gain.gain.value, audioState.ctx.currentTime);
                 audioState.gain.gain.linearRampToValueAtTime(0, audioState.ctx.currentTime + 0.05);
                 const c = audioState.ctx, o = audioState.osc;
                 setTimeout(() => { try { o.stop(); c.close(); } catch (e) {} }, 80);
