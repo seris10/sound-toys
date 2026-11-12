@@ -398,16 +398,18 @@ const App = () => {
 
     for (const v of [tv, pv]) {
       v.masterGain.gain.cancelScheduledValues(now);
-      v.masterGain.gain.setValueAtTime(0, now);
+      v.masterGain.gain.setValueAtTime(v.masterGain.gain.value, now);
+      v.masterGain.gain.linearRampToValueAtTime(0, now + 0.03);
       v.adsrGain.gain.cancelScheduledValues(now);
-      v.adsrGain.gain.setValueAtTime(0, now);
+      v.adsrGain.gain.setValueAtTime(v.adsrGain.gain.value, now);
+      v.adsrGain.gain.linearRampToValueAtTime(0, now + 0.03);
     }
 
     const patch = which === 'target' ? targetRef.current : guessRef.current;
     const voice = which === 'target' ? tv : pv;
 
     applyHarmonics(ctx, voice, patch.h);
-    voice.masterGain.gain.setValueAtTime(1, now);
+    voice.masterGain.gain.setValueAtTime(1, now + 0.04);
     const dur = schedulePhrase(ctx, voice, patch, now + 0.05);
 
     if (which === 'target') setListens((n) => n + 1);
@@ -423,6 +425,7 @@ const App = () => {
     for (const v of [targetVoiceRef.current, playerVoiceRef.current]) {
       if (!v) continue;
       v.masterGain.gain.cancelScheduledValues(now);
+      v.masterGain.gain.setValueAtTime(v.masterGain.gain.value, now);
       v.masterGain.gain.linearRampToValueAtTime(0, now + 0.05);
       v.adsrGain.gain.cancelScheduledValues(now);
       v.adsrGain.gain.setValueAtTime(0, now + 0.06);
