@@ -277,7 +277,14 @@
   function pluckBuffer(freqHz, durSec, brightness, sustain, pluckPos) {
     ensure();
     const sr = ctx.sampleRate;
-    const N = Math.max(2, Math.round(sr / freqHz));
+    // Loop delay = N - (1 - blend) from the two-tap lowpass, plus a first-order
+    // allpass fractional delay d in [0.1, 1.1) so the period hits sr / freqHz
+    // exactly instead of rounding to whole samples (Jaffe & Smith 1983).
+    const blendForTuning = 0.5 + (1 - brightness) * 0.45;
+    const D = sr / freqHz;
+    const N = Math.max(2, Math.floor(D + (1 - blendForTuning) - 0.1));
+    const apD = D - N + (1 - blendForTuning);
+    const apC = (1 - apD) / (1 + apD);
     const totalSamples = Math.floor(sr * durSec);
     const buf = ctx.createBuffer(1, totalSamples, sr);
     const out = buf.getChannelData(0);
@@ -302,12 +309,15 @@
     const ring = new Float32Array(N);
     for (let i = 0; i < N; i++) ring[i] = exc[i];
 
-    let head = 0;
+    let head = 0, apX = 0, apY = 0;
     for (let i = 0; i < totalSamples; i++) {
       out[i] = ring[head];
       const next = (head + 1) % N;
       const avg = blend * ring[head] + (1 - blend) * ring[next];
-      ring[head] = avg * decay;
+      const v = avg * decay;
+      apY = apC * v + apX - apC * apY;
+      apX = v;
+      ring[head] = apY;
       head = next;
     }
 
@@ -595,7 +605,7 @@
   sus.addEventListener('input', () => { susVal.textContent = (parseFloat(sus.value) / 1000).toFixed(3); });
   vol.addEventListener('input', () => {
     volVal.textContent = vol.value + '%';
-    if (master) master.gain.value = parseFloat(vol.value) / 100;
+    if (master) master.gain.setTargetAtTime(parseFloat(vol.value) / 100, ctx.currentTime, 0.02);
   });
 
   document.addEventListener('visibilitychange', () => {
