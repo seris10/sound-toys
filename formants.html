@@ -525,6 +525,7 @@
     view.active = on;
     const now = ctx.currentTime;
     audioState.env.gain.cancelScheduledValues(now);
+    audioState.env.gain.setValueAtTime(audioState.env.gain.value, now);
     audioState.env.gain.linearRampToValueAtTime(on ? 0.7 : 0, now + 0.08);
   }
 
@@ -637,7 +638,7 @@
   });
   vol.addEventListener('input', () => {
     volVal.textContent = vol.value + '%';
-    if (master) master.gain.value = parseFloat(vol.value) / 100;
+    if (master) master.gain.setTargetAtTime(parseFloat(vol.value) / 100, ctx.currentTime, 0.02);
   });
   document.addEventListener('visibilitychange', () => { if (document.hidden) release(); });
 
