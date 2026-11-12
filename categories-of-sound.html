@@ -98,7 +98,7 @@
         // ── Continuous frequency → colour ───────────────────────────────
         // The whole scrub (1 Hz … 15 MHz) maps to a smooth rainbow so colour
         // tracks the sound continuously, not just per category: low = red,
-        // rising through the spectrum to violet at the top — the same "pitch
+        // rising through the spectrum to violet at the top: the same "pitch
         // ascends through the rainbow" idea the flagship Resonance toy uses.
         const freqHue = (ratio) => ratio * 288;            // 0..1 -> red..violet
         const hsl = (h, s, l, a = 1) => `hsla(${h}, ${s}%, ${l}%, ${a})`;

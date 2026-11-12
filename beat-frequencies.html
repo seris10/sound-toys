@@ -297,9 +297,9 @@
   <header>
     <h1>Beat Frequencies</h1>
     <p>
-      Two pure tones, side by side. Tune them close together &mdash; if their frequencies differ by
+      Two pure tones, side by side. Tune them close together. If their frequencies differ by
       <em>f<sub>2</sub>&minus;f<sub>1</sub></em> hertz, the combined sound pulses that many times a
-      second. The wobble you hear is the same math the eye sees in the bottom scope &mdash; and each
+      second. The wobble you hear is the same math the eye sees in the bottom scope, and each
       tone is coloured by its own pitch.
     </p>
   </header>
@@ -316,11 +316,11 @@
       <canvas id="scopeB"></canvas>
     </div>
     <div class="scope sum">
-      <span class="label">Sum &mdash; what you hear</span>
+      <span class="label">Sum: what you hear</span>
       <canvas id="scopeSum"></canvas>
     </div>
     <div class="scope spectrum">
-      <span class="label">Live spectrum &mdash; the two peaks converge</span>
+      <span class="label">Live spectrum: the two peaks converge</span>
       <canvas id="scopeSpec"></canvas>
     </div>
   </div>
@@ -472,10 +472,10 @@
     readB.textContent = fb.toFixed(1) + ' Hz';
     const d = Math.abs(fa - fb);
     beat.textContent = d.toFixed(1) + ' Hz';
-    if (d < 0.5) beatHint.textContent = '— a slow swell, almost still';
-    else if (d < 8) beatHint.textContent = '— audible wobble';
-    else if (d < 20) beatHint.textContent = '— a rough, dissonant roughness';
-    else beatHint.textContent = '— two distinct tones';
+    if (d < 0.5) beatHint.textContent = '· a slow swell, almost still';
+    else if (d < 8) beatHint.textContent = '· audible wobble';
+    else if (d < 20) beatHint.textContent = '· a rough dissonance';
+    else beatHint.textContent = '· two distinct tones';
     colorScopeChrome();
   }
 

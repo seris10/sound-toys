@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Resonance - Interactive Sound Waves</title>
+    <title>Resonance</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
 
     <!-- Load Tailwind CSS -->
@@ -399,8 +399,7 @@ window.createBudgie = function (opts) {
   }
 
 
-  /* Research voice model.
-     Sources (values copied from the papers, not tuned by ear):
+  /* Research voice model. Parameter values come from these sources:
      [Tu11]  Tu, Osmanski & Dooling 2011, J Acoust Soc Am 129:2289, Table 1: contact calls and
              warble elements of 4 birds (duration, peak frequency, frequency range, FM and AM
              contour rates in Hz).
@@ -584,8 +583,8 @@ window.createBudgie = function (opts) {
     const c = transpose(item.contour), dur = clamp(item.dur * rand(0.9, 1), 0.06, 1.6), peak = 0.17;
     return { research: true, at, dur, peak, amIndex: rand(0.4, 0.7), amMod: indiv.amMod, contour: c, tonal: envCurve(dur, peak, indiv.amHz, 0.25, indiv.amPhase) };
   }
-  // Warble bout: first-order Markov chain over A-G. H = B plus a broadband tail (compound),
-  // I = runs of D/E/F delivered as quick trills [Tob19]. Gaps are gamma-distributed, not on a beat.
+  // Warble bout: first-order Markov chain over A-G. Compounds (category H) are B plus a broadband
+  // tail; trills (the ninth category) are runs of D/E/F with short gaps [Tob19]. Gaps are gamma-distributed, not on a beat.
   function warbleR(total) {
     const P = transitionMatrix(), pi = stationary(P), seq = [];
     let state = sampleIdx(pi), t = 0, prev = -1;
@@ -2036,7 +2035,7 @@ window.createBudgie = function (opts) {
               } catch(err) {
                 console.error('[audio-diag] initAudio FAILED:', err);
               }
-              // Diagnostic test beep — if you can hear this, the audio chain works
+              // Diagnostic test beep: audible when the audio chain works
               try {
                 const testCtx = audioCtxRef.current;
                 if (testCtx) {
@@ -2155,7 +2154,7 @@ const noteHue = ((octavePos % 1) * 360 + 360) % 360;
 // Saturation: higher octaves + higher amplitude = more saturated
 const noteSat = Math.min(100, 30 + Math.min(octavePos, 3) * 15 + amp * 30);
 
-// Lightness: dim when quiet, vivid when loud — capped at 50% to stay neon, never whitewash
+// Lightness: dim when quiet, vivid when loud, capped at 50% so colors stay saturated
 const noteLight = 10 + amp * 40;
 
 // Update color history

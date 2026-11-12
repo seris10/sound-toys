@@ -204,7 +204,7 @@
     <h1>Doppler</h1>
     <p>
       Drag the speaker around the listener (the ear in the centre). Wavefronts bunch up in front
-      of the speaker and stretch out behind &mdash; the perceived pitch in your ears follows the
+      of the speaker and stretch out behind, and the perceived pitch in your ears follows the
       same maths. Each ring is tinted by the pitch it carries: <span style="color:hsl(5,90%,58%)">warm
       when approaching</span> (higher), <span style="color:hsl(215,90%,60%)">cool when receding</span>
       (lower). Try "Auto&nbsp;orbit" for a clean siren-passing-by sweep.
@@ -433,7 +433,7 @@
 
     if (orbit) {
       // A straight fly-by past the listener (offset above it) so the distance
-      // genuinely shrinks then grows — that's what makes the pitch sweep up as
+      // genuinely shrinks then grows; that makes the pitch sweep up as
       // the source approaches and down as it recedes. A circle centred on the
       // listener keeps distance constant and produces no Doppler shift at all.
       orbitAngle += dt * 0.7;

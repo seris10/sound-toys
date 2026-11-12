@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Resonance Dashboard &mdash; a live audiovisual console</title>
+<title>Resonance Dashboard</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <style>
   :root {
@@ -449,7 +449,7 @@
 <div class="gate" id="gate">
   <div class="ring"><svg viewBox="0 0 24 24"><path d="M3 12h3l3-8 6 16 3-8h3"/></svg></div>
   <h1>Resonance <em>Live Console</em></h1>
-  <p>A dashboard that is itself a sound toy. A generative engine sings while a real spectrum analyser paints every panel &mdash; colour mapped to pitch. Switch to your microphone, or play the pads along the bottom.</p>
+  <p>A dashboard that is itself a sound toy. A generative engine sings while a real spectrum analyser paints every panel, with colour mapped to pitch. Switch to your microphone, or play the pads along the bottom.</p>
   <button class="go" id="gateGo">Tap to start</button>
 </div>
 
@@ -668,7 +668,7 @@
       micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false } });
       micNode = actx.createMediaStreamSource(micStream);
       micNode.connect(analyser); // analyse only, never to destination (no feedback)
-      showToast('Microphone live — whistle, sing, snap');
+      showToast('Microphone live: whistle, sing or snap');
     } catch (e) {
       showToast('Microphone unavailable: ' + (e.message || e.name));
       setSource('generative');

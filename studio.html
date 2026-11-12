@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Studio &mdash; mini multi-track</title>
+<title>Studio</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -741,7 +741,7 @@
         </div>
         <div class="t-scope" data-role="scope">
           <canvas></canvas>
-          <div class="empty">Empty &mdash; tap Bake or Record</div>
+          <div class="empty">Empty. Tap Bake or Record</div>
           <div class="playhead"></div>
         </div>
         <div class="t-mix">
@@ -817,8 +817,7 @@
     const r = cv.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     const c2d = cv.getContext('2d');
-    // Only reallocate the backing store when the box actually changes — this
-    // function is called every frame for playing tracks, so avoid churn.
+    // Resize the backing store only when the box size changes; playing tracks redraw every frame.
     const tw = Math.round(r.width * dpr), th = Math.round(r.height * dpr);
     if (cv.width !== tw || cv.height !== th) { cv.width = tw; cv.height = th; }
     c2d.setTransform(dpr, 0, 0, dpr, 0, 0);

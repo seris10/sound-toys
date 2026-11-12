@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Wave Types — who hears what</title>
+<title>Wave Types</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -409,7 +409,7 @@
       <p>
         Compare the frequency ranges other species use to make and hear sound. Tap any card to play a
         synthesized representation. Sounds outside the human hearing band (20 Hz to 20 kHz) are
-        pitch-shifted into it &mdash; the banner on the right tells you by how much.
+        pitch-shifted into it, and the banner on the right tells you by how much.
       </p>
     </div>
     <div class="card-grid" id="cardGrid"></div>
@@ -1018,7 +1018,7 @@
     });
     document.documentElement.style.setProperty('--accent-current', c.accent);
     liveScope.classList.add('active');
-    liveScopeLabel.textContent = c.name + ' — live output';
+    liveScopeLabel.textContent = c.name + ': live output';
 
     // Markers.
     const nativePos = freqToPos(c.centerHz);
@@ -1191,7 +1191,7 @@
     const stepX = w / N;
     lctx.lineJoin = 'round';
     lctx.lineCap = 'round';
-    // Glow pass (wide, dim) then core pass (thin, bright) — the Resonance look.
+    // Glow pass (wide, dim) then core pass (thin, bright), as in Resonance.
     for (let pass = 0; pass < 2; pass++) {
       lctx.beginPath();
       for (let i = 0; i < N; i++) {

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Patch - Daily Sound Match</title>
+    <title>Patch</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
 
     <script src="https://cdn.tailwindcss.com"></script>
@@ -469,7 +469,7 @@ const App = () => {
     if (!result) return;
     const p = result.parts;
     const text =
-      `Patch ${todayLabel()} — ${result.total}%\n` +
+      `Patch ${todayLabel()}: ${result.total}%\n` +
       `${blocks(p.harmonics)}${blocks(p.envelope)}${blocks(p.filter)}${blocks(p.resonance)}\n` +
       `${listens} listen${listens === 1 ? '' : 's'}`;
     navigator.clipboard.writeText(text).then(() => {
@@ -574,7 +574,7 @@ const App = () => {
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-4 px-4 py-4">
         <div className="space-y-2">
           <div className="text-[10px] uppercase tracking-widest text-slate-500">
-            Harmonics — drag to shape
+            Harmonics: drag to shape
           </div>
           <Bars
             values={guess.h}
@@ -624,7 +624,7 @@ const App = () => {
       </div>
 
       <div className="px-4 py-3 border-t border-slate-800/80 text-[11px] text-slate-600 leading-relaxed">
-        Same notes every time — only the timbre differs. Listen as many times as you want; there is no clock.
+        Same notes every time; only the timbre differs. Listen as many times as you want; there is no clock.
       </div>
     </div>
   );
