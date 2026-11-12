@@ -258,6 +258,7 @@
                 return () => {
                     try {
                         g.gain.cancelScheduledValues(ctx.currentTime);
+                        g.gain.setValueAtTime(g.gain.value, ctx.currentTime);
                         g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.08);
                         setTimeout(() => { try { osc.stop(); ctx.close(); } catch (e) {} }, 120);
                     } catch (e) {}
